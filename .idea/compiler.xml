@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <bytecodeTargetLevel target="21" />
+  </component>
+  <component name="JavacSettings">
+    <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="roux.app" options="--enable-preview" />
+      <module name="roux.app.main" options="--enable-preview" />
+      <module name="roux.app.test" options="--enable-preview" />
+      <module name="roux.lib" options="--enable-preview" />
+      <module name="roux.lib.main" options="--enable-preview" />
+      <module name="roux.lib.test" options="--enable-preview" />
+    </option>
+  </component>
+</project>
