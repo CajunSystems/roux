@@ -22,6 +22,7 @@ Roux is a foundational effect system for the JVM that embraces Java's native cap
 - **🎨 Type-Safe Errors** - Explicit error channel: `Effect<E, A>`
 - **🔌 Pluggable Runtime** - Swap execution strategies (virtual threads by default)
 - **⚙️ Fork/Fiber Support** - Structured concurrency for parallel effect execution
+- **🎭 Algebraic Effects** - Capability system for testable, composable side effects
 
 ## Quick Example
 ```java
@@ -118,6 +119,56 @@ Effect<AppError, Data> transformed = loadData
     .orElse(Effect.suspend(() -> readFromCache()));
 ```
 
+### Generator-Style Effects with Capabilities
+
+Write imperative-looking code that remains pure and testable using algebraic effects.
+
+```java
+// Define your capabilities
+sealed interface LogCapability<R> extends Capability<R> {
+    record Info(String message) implements LogCapability<Void> {}
+}
+
+sealed interface HttpCapability<R> extends Capability<R> {
+    record Get(String url) implements HttpCapability<String> {}
+}
+
+// Use them in generator-style effects
+Effect<Throwable, String> workflow = Effect.generate(ctx -> {
+    ctx.perform(new LogCapability.Info("Starting workflow"));
+    
+    String data = ctx.perform(new HttpCapability.Get("https://api.example.com/data"));
+    
+    ctx.perform(new LogCapability.Info("Received: " + data));
+    
+    return data.toUpperCase();
+}, handler);
+
+// Swap handlers for testing - no mocking needed!
+TestHandler testHandler = new TestHandler()
+    .withHttpResponse("https://api.example.com/data", "test-data");
+
+String result = runtime.unsafeRunWithHandler(workflow, testHandler);
+
+// Or use capabilities as effects directly
+Effect<Throwable, User> userEffect = new GetUser("123")
+    .toEffect()  // Convert capability to effect
+    .map(json -> parseJson(json, User.class))
+    .retry(3)
+    .timeout(Duration.ofSeconds(10));
+
+User user = runtime.unsafeRunWithHandler(userEffect, handler);
+```
+
+**Learn more:** [Capabilities Guide](docs/CAPABILITIES.md) | [Capability Recipes](docs/CAPABILITY_RECIPES.md)
+
+## Documentation
+
+- **[Effect API Reference](docs/EFFECT_API.md)** - Complete API documentation with examples
+- **[Capabilities Guide](docs/CAPABILITIES.md)** - Algebraic effects system
+- **[Capability Recipes](docs/CAPABILITY_RECIPES.md)** - Common patterns and use cases
+- **[Custom Capabilities Example](examples/CustomCapabilities.md)** - Complete working example
+
 ## Key Features
 
 ### Effect Combinators
@@ -128,17 +179,21 @@ Effect<AppError, Data> transformed = loadData
 - `mapError` - Transform error types
 - `orElse` - Fallback to alternative effect
 - `attempt` - Convert to `Either<E, A>` for explicit handling
+- `zipPar` - Run effects in parallel and combine results
 
 ### Concurrency
 
 - `fork()` - Run effect on a separate virtual thread, returns `Fiber<E, A>`
 - `join()` - Wait for forked effect to complete
 - `interrupt()` - Cancel a running fiber
+- `zipPar(other, combiner)` - Parallel execution with result combination
+- `Effects.par()` - Static helpers for 2, 3, 4 parallel effects
 - Automatic cancellation at effect boundaries
 
 ### Runtime Execution
 
 - `unsafeRun(effect)` - Synchronous execution, throws on error
+- `unsafeRunWithHandler(effect, handler)` - Run with capability handler
 - `runAsync(effect, onSuccess, onError)` - Asynchronous execution with callbacks
 - `CancellationHandle` - Control async execution (cancel, await)
 
@@ -182,6 +237,9 @@ Effect<IOException, String> fetchWithRetry(String url) {
 
 ### Parallel Data Fetching
 ```java
+import static com.cajunsystems.roux.Effects.*;
+
+// Verbose way
 Effect<Throwable, Summary> fetchSummary() {
     return users.fork().flatMap(usersF ->
            orders.fork().flatMap(ordersF ->
@@ -192,6 +250,16 @@ Effect<Throwable, Summary> fetchSummary() {
                )
            )
        );
+}
+
+// Clean way with zipPar
+Effect<Throwable, Summary> fetchSummary() {
+    return users.zipPar(orders, Summary::new);
+}
+
+// Or with static helper for 3+ effects
+Effect<Throwable, Dashboard> fetchDashboard() {
+    return par(users, orders, preferences, Dashboard::new);
 }
 ```
 
@@ -243,6 +311,8 @@ Stack-safe trampolined execution is planned for a future release.
 - [x] Boundary-based cancellation
 - [x] Async execution with CancellationHandle
 - [x] Fork/Fiber for concurrent effects
+- [x] Algebraic effects via capabilities
+- [x] Generator-style effect building
 - [ ] Scoped structured concurrency
 - [ ] Retry policies with backoff
 - [ ] Resource management (bracket, ensuring)

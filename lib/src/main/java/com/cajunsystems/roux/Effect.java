@@ -1,8 +1,11 @@
 package com.cajunsystems.roux;
 
+import com.cajunsystems.roux.capability.CapabilityHandler;
+import com.cajunsystems.roux.capability.Capability;
 import com.cajunsystems.roux.data.Either;
 import com.cajunsystems.roux.data.ThrowingSupplier;
 
+import java.util.function.BiFunction;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -31,6 +34,13 @@ public sealed interface Effect<E extends Throwable, A> {
     record Scoped<E extends Throwable, A>(
             Function<EffectScope, Effect<E, A>> body
     ) implements Effect<E, A> {}
+    record Generate<E extends Throwable, A>(
+            EffectGenerator<E, A> generator,
+            CapabilityHandler<Capability<?>> handler
+    ) implements Effect<E, A> {}
+    record PerformCapability<E extends Throwable, R>(
+            Capability<R> capability
+    ) implements Effect<E, R> {}
 
     // Smart constructors
     static <E extends Throwable, A> Effect<E, A> succeed(A value) {
@@ -82,9 +92,32 @@ public sealed interface Effect<E extends Throwable, A> {
         return scope.fork(this);
     }
 
+    default <B, C> Effect<Throwable, C> zipPar(Effect<E, B> other, BiFunction<A, B, C> f) {
+        return this.fork().flatMap(fiberA ->
+            other.fork().flatMap(fiberB ->
+                fiberA.join().mapError(e -> (Throwable) e).flatMap(a ->
+                    fiberB.join().mapError(e -> (Throwable) e).map(b ->
+                        f.apply(a, b)
+                    )
+                )
+            )
+        );
+    }
+
     static <E extends Throwable, A> Effect<E, A> scoped(
             Function<EffectScope, Effect<E, A>> body
     ) {
         return new Scoped<>(body);
+    }
+
+    static <E extends Throwable, A> Effect<E, A> generate(
+            EffectGenerator<E, A> generator,
+            CapabilityHandler<Capability<?>> handler
+    ) {
+        return new Generate<>(generator, handler);
+    }
+
+    static <E extends Throwable, R> Effect<E, R> from(Capability<R> capability) {
+        return new PerformCapability<>(capability);
     }
 }
