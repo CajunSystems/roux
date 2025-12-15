@@ -203,20 +203,30 @@ public class DefaultEffectRuntime implements EffectRuntime {
         try (var taskScope = new StructuredTaskScope.ShutdownOnFailure()) {
             EffectScopeRuntime scope = new EffectScopeRuntime(taskScope, this);
 
-            // Execute the scoped body
-            Effect<E, A> program = scoped.body().apply(scope);
-            A result = execute(program, ctx);
+            try {
+                // Execute the scoped body
+                Effect<E, A> program = scoped.body().apply(scope);
+                A result = execute(program, ctx);
 
-            // Wait for all forked effects to complete
-            taskScope.join();
-            taskScope.throwIfFailed();
+                // Wait for all forked effects to complete
+                taskScope.join();
+                taskScope.throwIfFailed();
 
-            return result;
+                return result;
+            } catch (Throwable t) {
+                // On error, cancel all forked fibers
+                try {
+                    unsafeRun(scope.cancelAll());
+                } catch (Throwable ignored) {
+                    // Ignore cancellation errors
+                }
+                throw t;
+            }
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new CancelledException(e);
-        } catch (ExecutionException e) {
+        } catch (java.util.concurrent.ExecutionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof RuntimeException re) {
                 throw re;
@@ -231,8 +241,8 @@ public class DefaultEffectRuntime implements EffectRuntime {
             ExecutionContext ctx
     ) throws E {
         GeneratorContextImpl<E> genCtx = new GeneratorContextImpl<>(
-            generate.handler(),
-            this
+                generate.handler(),
+                this
         );
         try {
             return generate.generator().generate(genCtx);
@@ -263,36 +273,36 @@ public class DefaultEffectRuntime implements EffectRuntime {
                                              AtomicBoolean cancelled) implements CancellationHandle {
 
         @Override
-            public void cancel() {
-                if (cancelled.compareAndSet(false, true)) {
-                    executionThread.interrupt();
-                }
-            }
-
-            @Override
-            public boolean isCancelled() {
-                return cancelled.get();
-            }
-
-            @Override
-            public void await() throws InterruptedException {
-                try {
-                    completionFuture.get();
-                } catch (ExecutionException e) {
-                    // Completed with error
-                }
-            }
-
-            @Override
-            public boolean await(Duration timeout) throws InterruptedException {
-                try {
-                    completionFuture.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
-                    return true;
-                } catch (ExecutionException e) {
-                    return true;
-                } catch (TimeoutException e) {
-                    return false;
-                }
+        public void cancel() {
+            if (cancelled.compareAndSet(false, true)) {
+                executionThread.interrupt();
             }
         }
+
+        @Override
+        public boolean isCancelled() {
+            return cancelled.get();
+        }
+
+        @Override
+        public void await() throws InterruptedException {
+            try {
+                completionFuture.get();
+            } catch (ExecutionException e) {
+                // Completed with error
+            }
+        }
+
+        @Override
+        public boolean await(Duration timeout) throws InterruptedException {
+            try {
+                completionFuture.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
+                return true;
+            } catch (ExecutionException e) {
+                return true;
+            } catch (TimeoutException e) {
+                return false;
+            }
+        }
+    }
 }

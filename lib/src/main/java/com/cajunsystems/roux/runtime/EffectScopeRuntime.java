@@ -25,6 +25,10 @@ class EffectScopeRuntime implements EffectScope {
     @Override
     public <E extends Throwable, A> Effect<Throwable, Fiber<E, A>> fork(Effect<E, A> effect) {
         return Effect.suspend(() -> {
+            if (cancelled.get()) {
+                throw new IllegalStateException("Cannot fork in cancelled scope");
+            }
+
             // Create Fork effect and execute it
             Effect.Fork<E, A> forkEffect = new Effect.Fork<>(effect);
             Fiber<E, A> fiber = runtime.executeFork(forkEffect);
@@ -46,7 +50,6 @@ class EffectScopeRuntime implements EffectScope {
                         runtime.unsafeRun(fiber.interrupt());
                     } catch (Throwable t) {
                         // Ignore errors during cancellation
-                        // (fiber might already be done or failed)
                     }
                 }
 
