@@ -313,7 +313,7 @@ Effect<Throwable, Integer> effect = Effect.suspend(() -> {
 });
 ```
 
-Stack-safe trampolined execution is planned for a future release.
+**Stack Safety:** Roux uses **trampolined execution** by default, providing true stack safety for arbitrarily deep effect chains. You can chain millions of `flatMap` operations without stack overflow.
 
 ## Roadmap
 
@@ -325,6 +325,7 @@ Stack-safe trampolined execution is planned for a future release.
 - [x] Algebraic effects via capabilities
 - [x] Generator-style effect building
 - [x] Scoped structured concurrency
+- [x] Stack-safe trampolined execution
 - [ ] Retry policies with backoff
 - [ ] Resource management (bracket, ensuring)
 - [ ] Race and timeout combinators

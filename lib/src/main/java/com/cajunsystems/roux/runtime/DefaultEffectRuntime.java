@@ -18,20 +18,34 @@ import java.util.function.Consumer;
 
 public class DefaultEffectRuntime implements EffectRuntime {
     private final ExecutorService executor;
+    private final boolean useTrampoline;
 
-    public DefaultEffectRuntime(ExecutorService executor) {
+    public DefaultEffectRuntime(ExecutorService executor, boolean useTrampoline) {
         this.executor = executor;
+        this.useTrampoline = useTrampoline;
     }
 
     public static DefaultEffectRuntime create() {
         return new DefaultEffectRuntime(
-                Executors.newVirtualThreadPerTaskExecutor()
+                Executors.newVirtualThreadPerTaskExecutor(),
+                true  // Use trampoline by default for stack safety
+        );
+    }
+
+    public static DefaultEffectRuntime createDirect() {
+        return new DefaultEffectRuntime(
+                Executors.newVirtualThreadPerTaskExecutor(),
+                false  // Direct recursion (legacy)
         );
     }
 
     @Override
     public <E extends Throwable, A> A unsafeRun(Effect<E, A> effect) throws E {
-        return execute(effect, ExecutionContext.root());
+        if (useTrampoline) {
+            return executeTrampoline(effect, ExecutionContext.root());
+        } else {
+            return execute(effect, ExecutionContext.root());
+        }
     }
 
     @Override
@@ -40,7 +54,11 @@ public class DefaultEffectRuntime implements EffectRuntime {
             CapabilityHandler<Capability<?>> handler
     ) throws E {
         ExecutionContext ctx = ExecutionContext.root().withCapabilityHandler(handler);
-        return execute(effect, ctx);
+        if (useTrampoline) {
+            return executeTrampoline(effect, ctx);
+        } else {
+            return execute(effect, ctx);
+        }
     }
 
     @Override
@@ -304,5 +322,228 @@ public class DefaultEffectRuntime implements EffectRuntime {
                 return false;
             }
         }
+    }
+
+    // ========================================================================
+    // Stack-Safe Trampolined Execution
+    // ========================================================================
+
+    /**
+     * Trampolined execution - stack-safe for arbitrarily deep effect chains.
+     */
+    @SuppressWarnings("unchecked")
+    private <E extends Throwable, A> A executeTrampoline(
+            Effect<E, A> effect,
+            ExecutionContext ctx
+    ) throws E {
+        Object currentValue = null;
+        Effect<?, ?> currentEffect = effect;
+        Throwable currentError = null;
+        java.util.Deque<Continuation> continuations = new java.util.ArrayDeque<>();
+
+        while (true) {
+            // Check for cancellation
+            if (Thread.interrupted()) {
+                throw new CancelledException();
+            }
+
+            // Handle error propagation
+            if (currentError != null) {
+                if (continuations.isEmpty()) {
+                    throw (E) currentError;
+                }
+
+                Continuation cont = continuations.pop();
+                if (cont instanceof FoldContinuation foldCont) {
+                    // Found error handler
+                    try {
+                        currentEffect = foldCont.onError.apply(currentError);
+                        currentError = null;
+                    } catch (Throwable t) {
+                        currentError = t;
+                    }
+                } else if (cont instanceof MapErrorContinuation mapErrorCont) {
+                    // Transform error
+                    try {
+                        currentError = mapErrorCont.f.apply(currentError);
+                    } catch (Throwable t) {
+                        currentError = t;
+                    }
+                } else {
+                    // Other continuations can't handle errors, keep propagating
+                    continue;
+                }
+            }
+
+            // Evaluate current effect
+            if (currentEffect != null) {
+                try {
+                    TrampolineResult result = evaluateOne(currentEffect, ctx, continuations);
+
+                    if (result.isDone) {
+                        currentValue = result.value;
+                        currentEffect = null;
+
+                        // Apply continuations
+                        while (!continuations.isEmpty()) {
+                            Continuation cont = continuations.pop();
+                            if (cont instanceof FlatMapContinuation flatMapCont) {
+                                currentEffect = flatMapCont.f.apply(currentValue);
+                                break;
+                            } else if (cont instanceof FoldContinuation foldCont) {
+                                currentEffect = foldCont.onSuccess.apply(currentValue);
+                                break;
+                            } else if (cont instanceof MapErrorContinuation) {
+                                // MapError doesn't affect success values, skip it
+                                continue;
+                            }
+                        }
+                        
+                        if (currentEffect == null && continuations.isEmpty()) {
+                            // No more continuations - we're done
+                            return (A) currentValue;
+                        }
+                    } else if (result.error != null) {
+                        currentError = result.error;
+                        currentEffect = null;
+                    } else {
+                        currentEffect = result.nextEffect;
+                    }
+                } catch (Throwable t) {
+                    currentError = t;
+                    currentEffect = null;
+                }
+            }
+        }
+    }
+
+    private static class TrampolineResult {
+        final boolean isDone;
+        final Object value;
+        final Throwable error;
+        final Effect<?, ?> nextEffect;
+
+        static TrampolineResult done(Object value) {
+            return new TrampolineResult(true, value, null, null);
+        }
+
+        static TrampolineResult error(Throwable error) {
+            return new TrampolineResult(false, null, error, null);
+        }
+
+        static TrampolineResult evaluate(Effect<?, ?> effect) {
+            return new TrampolineResult(false, null, null, effect);
+        }
+
+        private TrampolineResult(boolean isDone, Object value, Throwable error, Effect<?, ?> nextEffect) {
+            this.isDone = isDone;
+            this.value = value;
+            this.error = error;
+            this.nextEffect = nextEffect;
+        }
+    }
+
+    private sealed interface Continuation {}
+
+    private record FlatMapContinuation(
+            java.util.function.Function<Object, Effect<?, ?>> f
+    ) implements Continuation {}
+
+    private record FoldContinuation(
+            java.util.function.Function<Throwable, Effect<?, ?>> onError,
+            java.util.function.Function<Object, Effect<?, ?>> onSuccess
+    ) implements Continuation {}
+
+    private record MapErrorContinuation(
+            java.util.function.Function<Throwable, Throwable> f
+    ) implements Continuation {}
+
+    @SuppressWarnings("unchecked")
+    private <E extends Throwable, A> TrampolineResult evaluateOne(
+            Effect<E, A> effect,
+            ExecutionContext ctx,
+            java.util.Deque<Continuation> continuations
+    ) {
+        return switch (effect) {
+            case Effect.Pure<E, A> pure ->
+                    TrampolineResult.done(pure.value());
+
+            case Effect.Fail<E, A> fail ->
+                    TrampolineResult.error(fail.error());
+
+            case Effect.Suspend<E, A> suspend -> {
+                try {
+                    A result = suspend.thunk().get();
+                    yield TrampolineResult.done(result);
+                } catch (Exception e) {
+                    yield TrampolineResult.error(e);
+                }
+            }
+
+            case Effect.FlatMap<E, ?, A> flatMap -> {
+                // Push continuation and evaluate source
+                java.util.function.Function<?, ?> f = flatMap.f();
+                continuations.push(new FlatMapContinuation(
+                        (java.util.function.Function<Object, Effect<?, ?>>) f
+                ));
+                yield TrampolineResult.evaluate(flatMap.source());
+            }
+
+            case Effect.Fold<?, E, ?, A> fold -> {
+                // Push fold continuation and evaluate source
+                java.util.function.Function<?, ?> onError = fold.onError();
+                java.util.function.Function<?, ?> onSuccess = fold.onSuccess();
+                continuations.push(new FoldContinuation(
+                        (java.util.function.Function<Throwable, Effect<?, ?>>) onError,
+                        (java.util.function.Function<Object, Effect<?, ?>>) onSuccess
+                ));
+                yield TrampolineResult.evaluate(fold.source());
+            }
+
+            case Effect.MapError<?, E, A> mapError -> {
+                // Push error mapping continuation
+                java.util.function.Function<?, ?> f = mapError.f();
+                continuations.push(new MapErrorContinuation(
+                        (java.util.function.Function<Throwable, Throwable>) f
+                ));
+                yield TrampolineResult.evaluate(mapError.source());
+            }
+
+            case Effect.Fork<?, ?> fork -> {
+                try {
+                    Fiber<?, ?> fiber = executeFork((Effect.Fork<?, ?>) fork, ctx);
+                    yield TrampolineResult.done(fiber);
+                } catch (Throwable t) {
+                    yield TrampolineResult.error(t);
+                }
+            }
+
+            case Effect.Scoped<E, A> scoped -> {
+                try {
+                    A result = executeScoped(scoped, ctx);
+                    yield TrampolineResult.done(result);
+                } catch (Throwable t) {
+                    yield TrampolineResult.error(t);
+                }
+            }
+
+            case Effect.Generate<E, A> generate -> {
+                try {
+                    A result = executeGenerate(generate, ctx);
+                    yield TrampolineResult.done(result);
+                } catch (Throwable t) {
+                    yield TrampolineResult.error(t);
+                }
+            }
+
+            case Effect.PerformCapability<E, A> perform -> {
+                try {
+                    A result = executePerformCapability(perform, ctx);
+                    yield TrampolineResult.done(result);
+                } catch (Throwable t) {
+                    yield TrampolineResult.error(t);
+                }
+            }
+        };
     }
 }
