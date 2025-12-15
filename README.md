@@ -165,6 +165,7 @@ User user = runtime.unsafeRunWithHandler(userEffect, handler);
 ## Documentation
 
 - **[Effect API Reference](docs/EFFECT_API.md)** - Complete API documentation with examples
+- **[Structured Concurrency Guide](docs/STRUCTURED_CONCURRENCY.md)** - Scoped concurrency patterns and best practices
 - **[Capabilities Guide](docs/CAPABILITIES.md)** - Algebraic effects system
 - **[Capability Recipes](docs/CAPABILITY_RECIPES.md)** - Common patterns and use cases
 - **[Custom Capabilities Example](examples/CustomCapabilities.md)** - Complete working example
@@ -177,9 +178,19 @@ User user = runtime.unsafeRunWithHandler(userEffect, handler);
 - `flatMap` - Chain effects sequentially
 - `catchAll` - Handle errors and recover
 - `mapError` - Transform error types
+- `widen` - Widen error type to `Throwable` (safe)
+- `narrow` - Narrow error type to specific exception (unsafe cast)
 - `orElse` - Fallback to alternative effect
 - `attempt` - Convert to `Either<E, A>` for explicit handling
 - `zipPar` - Run effects in parallel and combine results
+
+### Structured Concurrency
+
+- `Effect.scoped(body)` - Create a scope for structured concurrency
+- `scope.fork(effect)` - Fork effect within scope with automatic cleanup
+- `effect.forkIn(scope)` - Convenience method to fork in a scope
+- Automatic cancellation on scope exit (success, error, or early return)
+- Built on Java's `StructuredTaskScope` (JEP 453)
 
 ### Concurrency
 
@@ -313,7 +324,7 @@ Stack-safe trampolined execution is planned for a future release.
 - [x] Fork/Fiber for concurrent effects
 - [x] Algebraic effects via capabilities
 - [x] Generator-style effect building
-- [ ] Scoped structured concurrency
+- [x] Scoped structured concurrency
 - [ ] Retry policies with backoff
 - [ ] Resource management (bracket, ensuring)
 - [ ] Race and timeout combinators

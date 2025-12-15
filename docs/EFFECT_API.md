@@ -100,17 +100,40 @@ Effect<Throwable, User> effect = Effect.from(new GetUser("123"));
 
 ### `Effect.scoped(body)`
 
-Create a scoped effect for structured concurrency. All forked effects are cancelled when scope exits.
+Create a scoped effect for **structured concurrency**. All forked effects within the scope are automatically managed and cancelled when the scope exits.
 
 ```java
 Effect<Throwable, String> effect = Effect.scoped(scope -> {
-    Fiber<Throwable, String> fiber = scope.fork(longRunningTask);
-    // fiber automatically cancelled if scope exits
-    return fiber.join();
+    // Fork tasks within the scope
+    Effect<Throwable, Fiber<Throwable, String>> fiber1 = task1.forkIn(scope);
+    Effect<Throwable, Fiber<Throwable, String>> fiber2 = task2.forkIn(scope);
+    
+    // Wait for results
+    return fiber1.flatMap(f1 ->
+        fiber2.flatMap(f2 ->
+            f1.join().flatMap(r1 ->
+                f2.join().map(r2 -> r1 + r2)
+            )
+        )
+    );
+    // Both tasks automatically cancelled if scope exits early
 });
 ```
 
 **Type:** `<E extends Throwable, A> Effect<E, A>`
+
+**Scope Methods:**
+- `scope.fork(effect)` - Fork an effect within the scope
+- `scope.cancelAll()` - Manually cancel all forked effects
+- `scope.isCancelled()` - Check if scope is cancelled
+
+**Guarantees:**
+- ✅ All forked effects are tracked
+- ✅ Automatic cancellation on scope exit (success, error, or early return)
+- ✅ No leaked threads or resources
+- ✅ Built on Java's `StructuredTaskScope` (JEP 453)
+
+**See:** [Structured Concurrency Guide](STRUCTURED_CONCURRENCY.md) for comprehensive documentation and patterns.
 
 ---
 
@@ -222,6 +245,50 @@ Effect<DomainError, User> normalized = fetchUser(id)
         default -> new DomainError.UnknownError(e);
     });
 ```
+
+---
+
+### `widen()`
+
+Widen the error type to `Throwable`. This is a safe operation useful for composing effects with different error types.
+
+```java
+Effect<IOException, String> io = fetchFile();
+Effect<SQLException, User> sql = queryUser();
+
+// Widen both to Throwable for composition
+Effect<Throwable, String> combined = io.widen()
+    .flatMap(data -> sql.widen().map(user -> process(data, user)));
+```
+
+**Type:** `Effect<Throwable, A>`
+
+**Use case:** Composing effects with different specific error types.
+
+---
+
+### `narrow()`
+
+Narrow the error type to a more specific exception type. 
+
+⚠️ **Warning:** This is an unsafe cast. Use only when you have external knowledge that the error type is more specific than declared. If the actual error at runtime is not of the narrowed type, you will get a `ClassCastException`.
+
+```java
+// Library returns generic Throwable
+Effect<Throwable, Config> generic = loadFromLibrary();
+
+// You know it only throws ConfigException
+Effect<ConfigException, Config> specific = generic.narrow();
+
+// Now you can handle ConfigException specifically
+Effect<ConfigException, Config> handled = specific.catchAll(e -> 
+    Effect.succeed(defaultConfig())
+);
+```
+
+**Type:** `<E2 extends E> Effect<E2, A>`
+
+**Use case:** Type refinement when you know the actual error type is more specific.
 
 ---
 
@@ -668,10 +735,19 @@ Roux's Effect system is fully type-safe:
 Effect<IOException, String> io = fetchFile();
 Effect<SQLException, User> sql = queryUser();
 
-// Composition maintains type safety
+// Composition maintains type safety - use widen() for convenience
 Effect<Throwable, String> combined = io
-    .mapError(e -> (Throwable) e)  // Widen error type
+    .widen()  // Widen error type from IOException to Throwable
+    .flatMap(data -> sql.widen());
+
+// Or use mapError for more control
+Effect<Throwable, String> combined2 = io
+    .mapError(e -> (Throwable) e)
     .flatMap(data -> sql.mapError(e -> (Throwable) e));
+
+// Narrow error types when you know the specific type (unsafe cast)
+Effect<Throwable, Config> generic = loadFromLibrary();
+Effect<ConfigException, Config> specific = generic.narrow();
 
 // Compiler catches type errors
 // io.flatMap(data -> sql);  // ❌ Won't compile - error types don't match

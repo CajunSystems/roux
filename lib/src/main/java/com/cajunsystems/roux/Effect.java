@@ -72,6 +72,16 @@ public sealed interface Effect<E extends Throwable, A> {
         return new MapError<>(this, f);
     }
 
+    @SuppressWarnings("unchecked")
+    default Effect<Throwable, A> widen() {
+        return (Effect<Throwable, A>) this;
+    }
+
+    @SuppressWarnings("unchecked")
+    default <E2 extends E> Effect<E2, A> narrow() {
+        return (Effect<E2, A>) this;
+    }
+
     default Effect<E, A> orElse(Effect<E, A> fallback) {
         return catchAll(e -> fallback);
     }

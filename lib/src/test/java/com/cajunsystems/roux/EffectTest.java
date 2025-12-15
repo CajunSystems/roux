@@ -551,4 +551,103 @@ class EffectTest {
         Integer result = runtime.unsafeRun(flattened);
         assertEquals(42, result);
     }
+
+    @Test
+    void testWidenErrorType() throws Throwable {
+        // Create an effect with a specific error type
+        Effect<IOException, String> ioEffect = Effect.succeed("hello");
+        
+        // Widen to Throwable
+        Effect<Throwable, String> widened = ioEffect.widen();
+        
+        String result = runtime.unsafeRun(widened);
+        assertEquals("hello", result);
+    }
+
+    @Test
+    void testWidenErrorTypeWithFailure() {
+        IOException error = new IOException("io error");
+        Effect<IOException, String> ioEffect = Effect.fail(error);
+        
+        // Widen to Throwable
+        Effect<Throwable, String> widened = ioEffect.widen();
+        
+        Throwable thrown = assertThrows(
+                Throwable.class,
+                () -> runtime.unsafeRun(widened)
+        );
+        assertEquals("io error", thrown.getMessage());
+        assertTrue(thrown instanceof IOException);
+    }
+
+    @Test
+    void testWidenForComposition() throws Throwable {
+        Effect<IOException, String> ioEffect = Effect.succeed("io");
+        Effect<IllegalArgumentException, String> argEffect = Effect.succeed("arg");
+        
+        // Compose effects with different error types by widening
+        Effect<Throwable, String> composed = ioEffect.widen().flatMap(io ->
+            argEffect.widen().map(arg -> io + "-" + arg)
+        );
+        
+        String result = runtime.unsafeRun(composed);
+        assertEquals("io-arg", result);
+    }
+
+    @Test
+    void testNarrowErrorType() throws Throwable {
+        // Create an effect with generic error type
+        Effect<Throwable, String> generic = Effect.succeed("hello");
+        
+        // Narrow to specific error type (unsafe but useful when you know the type)
+        Effect<IOException, String> narrowed = generic.narrow();
+        
+        String result = runtime.unsafeRun(narrowed);
+        assertEquals("hello", result);
+    }
+
+    @Test
+    void testNarrowWithActualError() {
+        // Create an effect that actually fails with IOException
+        IOException ioError = new IOException("io error");
+        Effect<Throwable, String> generic = Effect.fail(ioError);
+        
+        // Narrow to IOException
+        Effect<IOException, String> narrowed = generic.narrow();
+        
+        IOException thrown = assertThrows(
+                IOException.class,
+                () -> runtime.unsafeRun(narrowed)
+        );
+        assertEquals("io error", thrown.getMessage());
+    }
+
+    @Test
+    void testWidenThenNarrow() throws Throwable {
+        // Start with specific type
+        Effect<IOException, String> specific = Effect.succeed("test");
+        
+        // Widen then narrow back
+        Effect<IOException, String> roundTrip = specific.widen().narrow();
+        
+        String result = runtime.unsafeRun(roundTrip);
+        assertEquals("test", result);
+    }
+
+    @Test
+    void testNarrowForTypeRefinement() throws Throwable {
+        // Simulate library that returns generic Throwable
+        Effect<Throwable, String> libraryEffect = Effect.succeed("data");
+        
+        // You know it only throws IOException, narrow for better error handling
+        Effect<IOException, String> refined = libraryEffect.narrow();
+        
+        Effect<IOException, String> handled = refined.catchAll(io -> {
+            // Now we can handle IOException specifically
+            return Effect.succeed("recovered from: " + io.getMessage());
+        });
+        
+        String result = runtime.unsafeRun(handled);
+        assertEquals("data", result);
+    }
 }
