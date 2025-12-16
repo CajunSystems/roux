@@ -24,6 +24,29 @@ Roux is a foundational effect system for the JVM that embraces Java's native cap
 - **⚙️ Fork/Fiber Support** - Structured concurrency for parallel effect execution
 - **🎭 Algebraic Effects** - Capability system for testable, composable side effects
 
+## Installation
+
+### Maven
+```xml
+<dependency>
+    <groupId>com.cajunsystems</groupId>
+    <artifactId>roux</artifactId>
+    <version>0.1.0</version>
+</dependency>
+```
+
+### Gradle (Kotlin DSL)
+```kotlin
+implementation("com.cajunsystems:roux:0.1.0")
+```
+
+### Gradle (Groovy)
+```groovy
+implementation 'com.cajunsystems:roux:0.1.0'
+```
+
+**Requirements:** Java 21 or higher
+
 ## Quick Example
 ```java
 import com.cajunsystems.roux.*;

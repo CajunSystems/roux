@@ -8,6 +8,8 @@
 plugins {
     // Apply the java-library plugin for API and implementation separation.
     `java-library`
+    `maven-publish`
+    signing
 }
 
 repositories {
@@ -15,28 +17,48 @@ repositories {
     mavenCentral()
 }
 
+group = "com.cajunsystems"
+version = "0.1.0"
+
 dependencies {
     // Use JUnit Jupiter for testing.
     testImplementation(libs.junit.jupiter)
 
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-
-    // This dependency is exported to consumers, that is to say found on their compile classpath.
-    api(libs.commons.math3)
-
-    // This dependency is used internally, and not exposed to consumers on their own compile classpath.
-    implementation(libs.guava)
 }
 
 // Apply a specific Java toolchain to ease working on different environments.
 java {
+    withJavadocJar()
+    withSourcesJar()
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
+tasks.named<Jar>("jar") {
+    archiveBaseName.set("roux")
+}
+
+tasks.named<Jar>("sourcesJar") {
+    archiveBaseName.set("roux")
+}
+
+tasks.named<Jar>("javadocJar") {
+    archiveBaseName.set("roux")
+}
+
 tasks.withType<JavaCompile> {
     options.compilerArgs.add("--enable-preview")
+}
+
+tasks.withType<Javadoc> {
+    options {
+        this as StandardJavadocDocletOptions
+        addStringOption("Xdoclint:none", "-quiet")
+        addBooleanOption("-enable-preview", true)
+        addStringOption("-release", "21")
+    }
 }
 
 tasks.withType<Test> {
@@ -46,4 +68,72 @@ tasks.withType<Test> {
 tasks.named<Test>("test") {
     // Use JUnit Platform for unit tests.
     useJUnitPlatform()
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("mavenJava") {
+            from(components["java"])
+            groupId = "com.cajunsystems"
+            artifactId = "roux"
+            
+            pom {
+                name.set("Roux")
+                description.set("A modern effect system for Java 21+ with algebraic effects, structured concurrency, and stack-safe execution")
+                url.set("https://github.com/CajunSystems/roux")
+                
+                licenses {
+                    license {
+                        name.set("MIT License")
+                        url.set("https://opensource.org/licenses/MIT")
+                    }
+                }
+                
+                developers {
+                    developer {
+                        id.set("cajunsystems")
+                        name.set("CajunSystems")
+                        email.set("pradeep.samuel90@gmail.com")
+                    }
+                }
+                
+                scm {
+                    connection.set("scm:git:git://github.com/CajunSystems/roux.git")
+                    developerConnection.set("scm:git:ssh://github.com:CajunSystems/roux.git")
+                    url.set("https://github.com/CajunSystems/roux")
+                }
+            }
+        }
+    }
+    
+    repositories {
+        maven {
+            name = "CentralPortal"
+            url = uri(layout.buildDirectory.dir("repo"))
+        }
+    }
+}
+
+val hasSigningCredentials = project.hasProperty("signing.keyId") &&
+        project.hasProperty("signing.password") &&
+        project.hasProperty("signing.secretKeyRingFile")
+
+signing {
+    setRequired {
+        gradle.taskGraph.hasTask("publishMavenJavaPublicationToCentralPortalRepository") && hasSigningCredentials
+    }
+
+    if (hasSigningCredentials) {
+        sign(publishing.publications["mavenJava"])
+    } else {
+        logger.lifecycle("Signing disabled for ${project.path} - missing signing properties")
+    }
+}
+
+// Task to create a bundle for Central Portal upload
+tasks.register<Zip>("createCentralBundle") {
+    from(layout.buildDirectory.dir("repo"))
+    archiveFileName.set("roux-${version}-bundle.zip")
+    destinationDirectory.set(layout.buildDirectory.dir("distributions"))
+    dependsOn("publishMavenJavaPublicationToCentralPortalRepository")
 }
