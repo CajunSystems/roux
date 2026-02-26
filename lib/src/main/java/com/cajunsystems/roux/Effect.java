@@ -4,14 +4,20 @@ import com.cajunsystems.roux.capability.CapabilityHandler;
 import com.cajunsystems.roux.capability.Capability;
 import com.cajunsystems.roux.data.Either;
 import com.cajunsystems.roux.data.ThrowingSupplier;
+import com.cajunsystems.roux.data.Unit;
 
+import java.time.Duration;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
 public sealed interface Effect<E extends Throwable, A> {
 
-    // Primitive constructors
+    // -----------------------------------------------------------------------
+    // Primitive constructors (the effect algebra)
+    // -----------------------------------------------------------------------
+
     record Pure<E extends Throwable, A>(A value) implements Effect<E, A> {}
     record Fail<E extends Throwable, A>(E error) implements Effect<E, A> {}
     record Suspend<E extends Throwable, A>(ThrowingSupplier<A> thunk) implements Effect<E, A> {}
@@ -41,8 +47,21 @@ public sealed interface Effect<E extends Throwable, A> {
     record PerformCapability<E extends Throwable, R>(
             Capability<R> capability
     ) implements Effect<E, R> {}
+    /** Runs {@code effect} and fails with {@link com.cajunsystems.roux.exception.TimeoutException} if it
+     *  does not complete within {@code duration}. Error type widens to {@link Throwable}. */
+    record Timeout<E extends Throwable, A>(
+            Effect<E, A> effect,
+            Duration duration
+    ) implements Effect<Throwable, A> {}
+    /** Races a list of effects and returns the result of the first one to complete. */
+    record Race<E extends Throwable, A>(
+            java.util.List<Effect<E, A>> effects
+    ) implements Effect<Throwable, A> {}
 
+    // -----------------------------------------------------------------------
     // Smart constructors
+    // -----------------------------------------------------------------------
+
     static <E extends Throwable, A> Effect<E, A> succeed(A value) {
         return new Pure<>(value);
     }
@@ -55,7 +74,74 @@ public sealed interface Effect<E extends Throwable, A> {
         return new Suspend<>(thunk);
     }
 
-    // Basic combinators
+    /** Create an effect that succeeds with {@link Unit}. */
+    static <E extends Throwable> Effect<E, Unit> unit() {
+        return succeed(Unit.unit());
+    }
+
+    /**
+     * Create an effect that runs a {@link Runnable} as a side effect and succeeds with
+     * {@link Unit}. Exceptions thrown by the runnable propagate as errors.
+     */
+    static <E extends Throwable> Effect<E, Unit> runnable(Runnable action) {
+        return suspend(() -> {
+            action.run();
+            return Unit.unit();
+        });
+    }
+
+    /**
+     * Sleep for the given duration. Interruption is respected — the sleep will
+     * abort if the running thread is interrupted.
+     */
+    static <E extends Throwable> Effect<E, Unit> sleep(Duration duration) {
+        return suspend(() -> {
+            Thread.sleep(duration.toMillis());
+            return Unit.unit();
+        });
+    }
+
+    /**
+     * Run {@code effect} only when {@code condition} is {@code true}.
+     * When {@code false}, succeeds immediately with {@link Unit}.
+     */
+    @SuppressWarnings("unchecked")
+    static <E extends Throwable> Effect<E, Unit> when(boolean condition, Effect<E, ?> effect) {
+        if (condition) {
+            return ((Effect<E, Object>) effect).map(__ -> Unit.unit());
+        }
+        return unit();
+    }
+
+    /**
+     * Run {@code effect} only when {@code condition} is {@code false}.
+     * When {@code true}, succeeds immediately with {@link Unit}.
+     */
+    static <E extends Throwable> Effect<E, Unit> unless(boolean condition, Effect<E, ?> effect) {
+        return when(!condition, effect);
+    }
+
+    static <E extends Throwable, A> Effect<E, A> scoped(
+            Function<EffectScope, Effect<E, A>> body
+    ) {
+        return new Scoped<>(body);
+    }
+
+    static <E extends Throwable, A> Effect<E, A> generate(
+            EffectGenerator<E, A> generator,
+            CapabilityHandler<Capability<?>> handler
+    ) {
+        return new Generate<>(generator, handler);
+    }
+
+    static <E extends Throwable, R> Effect<E, R> from(Capability<R> capability) {
+        return new PerformCapability<>(capability);
+    }
+
+    // -----------------------------------------------------------------------
+    // Transformation combinators
+    // -----------------------------------------------------------------------
+
     default <B> Effect<E, B> map(Function<A, B> f) {
         return flatMap(a -> succeed(f.apply(a)));
     }
@@ -64,8 +150,35 @@ public sealed interface Effect<E extends Throwable, A> {
         return new FlatMap<>(this, f);
     }
 
+    /**
+     * Execute {@code action} as a side-effect on success, then pass the original
+     * value through unchanged. Useful for logging, metrics, etc.
+     */
+    default Effect<E, A> tap(Consumer<A> action) {
+        return flatMap(a -> {
+            action.accept(a);
+            return succeed(a);
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // Error-handling combinators
+    // -----------------------------------------------------------------------
+
     default Effect<E, A> catchAll(Function<E, Effect<E, A>> handler) {
         return new Fold<>(this, handler, Effect::succeed);
+    }
+
+    /**
+     * Execute {@code action} as a side-effect when this effect fails, then
+     * re-throw the original error unchanged.
+     */
+    default Effect<E, A> tapError(Consumer<E> action) {
+        return new Fold<>(
+                this,
+                e -> { action.accept(e); return fail(e); },
+                Effect::succeed
+        );
     }
 
     default <E2 extends Throwable> Effect<E2, A> mapError(Function<E, E2> f) {
@@ -94,6 +207,46 @@ public sealed interface Effect<E extends Throwable, A> {
         );
     }
 
+    /**
+     * Retry this effect up to {@code maxAttempts} additional times on failure.
+     * Retries happen immediately without delay; use {@link #retryWithDelay} for
+     * back-off strategies.
+     *
+     * @param maxAttempts the maximum number of additional attempts (0 = no retry)
+     */
+    default Effect<E, A> retry(int maxAttempts) {
+        if (maxAttempts <= 0) return this;
+        Effect<E, A> self = this;
+        return self.catchAll(__ -> self.retry(maxAttempts - 1));
+    }
+
+    /**
+     * Retry this effect up to {@code maxAttempts} additional times, sleeping
+     * {@code delay} between each attempt.
+     *
+     * @param maxAttempts the maximum number of additional attempts
+     * @param delay       pause between each retry
+     */
+    default Effect<Throwable, A> retryWithDelay(int maxAttempts, Duration delay) {
+        if (maxAttempts <= 0) return this.widen();
+        Effect<E, A> self = this;
+        return self.widen().catchAll(__ ->
+                Effect.<Throwable>sleep(delay).flatMap(_u -> self.retryWithDelay(maxAttempts - 1, delay))
+        );
+    }
+
+    /**
+     * Fail with {@link com.cajunsystems.roux.exception.TimeoutException} if this effect does not
+     * complete within {@code duration}. The error type widens to {@link Throwable}.
+     */
+    default Effect<Throwable, A> timeout(Duration duration) {
+        return new Timeout<>(this, duration);
+    }
+
+    // -----------------------------------------------------------------------
+    // Concurrency combinators
+    // -----------------------------------------------------------------------
+
     default Effect<Throwable, Fiber<E, A>> fork() {
         return new Fork<>(this);
     }
@@ -112,22 +265,5 @@ public sealed interface Effect<E extends Throwable, A> {
                 )
             )
         );
-    }
-
-    static <E extends Throwable, A> Effect<E, A> scoped(
-            Function<EffectScope, Effect<E, A>> body
-    ) {
-        return new Scoped<>(body);
-    }
-
-    static <E extends Throwable, A> Effect<E, A> generate(
-            EffectGenerator<E, A> generator,
-            CapabilityHandler<Capability<?>> handler
-    ) {
-        return new Generate<>(generator, handler);
-    }
-
-    static <E extends Throwable, R> Effect<E, R> from(Capability<R> capability) {
-        return new PerformCapability<>(capability);
     }
 }

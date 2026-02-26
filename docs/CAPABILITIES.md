@@ -50,7 +50,7 @@ Effect<Throwable, String> effect = Effect.generate(ctx -> {
 }, handler);
 ```
 
-### 5. Capability-Effect Bridge (NEW!)
+### 5. Capability-Effect Bridge
 
 Convert capabilities directly to effects to leverage all Effect operators:
 
@@ -59,19 +59,40 @@ Convert capabilities directly to effects to leverage all Effect operators:
 Effect<Throwable, User> effect = new GetUser("123")
     .toEffect()
     .map(json -> parseJson(json, User.class))
-    .retry(3)
-    .timeout(Duration.ofSeconds(10));
+    .retry(3)                          // retry up to 3 extra times on failure
+    .timeout(Duration.ofSeconds(10));  // fail with TimeoutException after 10s
 
 // Handler provided at runtime
 User user = runtime.unsafeRunWithHandler(effect, handler);
 
 // Or use Effect.from()
-Effect<Throwable, String> effect = Effect.from(new GetUser("123"));
+Effect<Throwable, String> getUser = Effect.from(new GetUser("123"));
 
 // Parallel execution with zipPar
 Effect<Throwable, Dashboard> dashboard = new GetUser("123")
     .toEffect()
     .zipPar(new GetOrders("123").toEffect(), Dashboard::new);
+```
+
+### 6. Building Handlers (0.2.0+)
+
+Use the fluent `CapabilityHandler.builder()` for clean, lambda-friendly handler definitions:
+
+```java
+CapabilityHandler<Capability<?>> handler = CapabilityHandler.builder()
+    .on(MyCapability.Fetch.class, fetch -> httpClient.get(fetch.url()))
+    .on(MyCapability.Log.class,   log   -> { logger.info(log.message()); return null; })
+    .build();
+```
+
+Compose multiple handlers without relying on exception-based dispatch:
+
+```java
+CapabilityHandler<Capability<?>> combined = CapabilityHandler.compose(
+    httpHandler,
+    dbHandler,
+    logHandler
+);
 ```
 
 ## Why This Design?

@@ -7,16 +7,20 @@ import com.cajunsystems.roux.Fiber;
 import com.cajunsystems.roux.capability.Capability;
 import com.cajunsystems.roux.capability.CapabilityHandler;
 import com.cajunsystems.roux.data.Either;
+import com.cajunsystems.roux.data.Unit;
 import com.cajunsystems.roux.exception.CancelledException;
+import com.cajunsystems.roux.exception.TimeoutException;
 
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
-public class DefaultEffectRuntime implements EffectRuntime {
+public class DefaultEffectRuntime implements EffectRuntime, AutoCloseable {
     private final ExecutorService executor;
     private final boolean useTrampoline;
 
@@ -28,24 +32,42 @@ public class DefaultEffectRuntime implements EffectRuntime {
     public static DefaultEffectRuntime create() {
         return new DefaultEffectRuntime(
                 Executors.newVirtualThreadPerTaskExecutor(),
-                true  // Use trampoline by default for stack safety
+                true
         );
     }
 
+    /** Legacy non-trampolined runtime. Prefer {@link #create()}. */
     public static DefaultEffectRuntime createDirect() {
         return new DefaultEffectRuntime(
                 Executors.newVirtualThreadPerTaskExecutor(),
-                false  // Direct recursion (legacy)
+                false
         );
     }
 
+    // -----------------------------------------------------------------------
+    // AutoCloseable
+    // -----------------------------------------------------------------------
+
+    @Override
+    public void close() {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // EffectRuntime
+    // -----------------------------------------------------------------------
+
     @Override
     public <E extends Throwable, A> A unsafeRun(Effect<E, A> effect) throws E {
-        if (useTrampoline) {
-            return executeTrampoline(effect, ExecutionContext.root());
-        } else {
-            return execute(effect, ExecutionContext.root());
-        }
+        return runEffect(effect, ExecutionContext.root());
     }
 
     @Override
@@ -53,12 +75,7 @@ public class DefaultEffectRuntime implements EffectRuntime {
             Effect<E, A> effect,
             CapabilityHandler<Capability<?>> handler
     ) throws E {
-        ExecutionContext ctx = ExecutionContext.root().withCapabilityHandler(handler);
-        if (useTrampoline) {
-            return executeTrampoline(effect, ctx);
-        } else {
-            return execute(effect, ctx);
-        }
+        return runEffect(effect, ExecutionContext.root().withCapabilityHandler(handler));
     }
 
     @Override
@@ -68,14 +85,18 @@ public class DefaultEffectRuntime implements EffectRuntime {
             Consumer<Throwable> onError
     ) {
         CompletableFuture<Void> completionFuture = new CompletableFuture<>();
-        AtomicReference<Thread> threadRef = new AtomicReference<>();
         AtomicBoolean cancelled = new AtomicBoolean(false);
+        // Use a latch so we can hand back the handle without spinning
+        CountDownLatch started = new CountDownLatch(1);
+        AtomicReference<Thread> threadRef = new AtomicReference<>();
 
         executor.execute(() -> {
             threadRef.set(Thread.currentThread());
+            started.countDown();
 
             try {
-                A result = execute(effect, ExecutionContext.root());
+                // Use the stack-safe trampoline even for async paths
+                A result = executeTrampoline(effect, ExecutionContext.root());
                 if (!cancelled.get()) {
                     onSuccess.accept(result);
                 }
@@ -90,8 +111,10 @@ public class DefaultEffectRuntime implements EffectRuntime {
             }
         });
 
-        while (threadRef.get() == null) {
-            Thread.onSpinWait();
+        try {
+            started.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
 
         return new DefaultCancellationHandle(threadRef.get(), completionFuture, cancelled);
@@ -107,24 +130,30 @@ public class DefaultEffectRuntime implements EffectRuntime {
             ExecutionContext parentCtx
     ) {
         CompletableFuture<Either<Throwable, A>> resultFuture = new CompletableFuture<>();
-        AtomicReference<Thread> threadRef = new AtomicReference<>();
         UUID fiberId = UUID.randomUUID();
         AtomicBoolean interrupted = new AtomicBoolean(false);
+        // Use a latch so executeFork returns only after the thread is actually running
+        CountDownLatch started = new CountDownLatch(1);
+        AtomicReference<Thread> threadRef = new AtomicReference<>();
 
         executor.execute(() -> {
             threadRef.set(Thread.currentThread());
-            ExecutionContext childCtx = parentCtx.childContext();
+            started.countDown();
 
+            ExecutionContext childCtx = parentCtx.childContext();
             try {
-                A result = execute(fork.effect(), childCtx);
+                // Use the stack-safe trampoline for forked effects too
+                A result = executeTrampoline(fork.effect(), childCtx);
                 resultFuture.complete(Either.right(result));
             } catch (Throwable error) {
                 resultFuture.complete(Either.left(error));
             }
         });
 
-        while (threadRef.get() == null) {
-            Thread.onSpinWait();
+        try {
+            started.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
 
         return new FiberRuntime<>(fiberId, resultFuture, threadRef.get(), interrupted);
@@ -135,11 +164,26 @@ public class DefaultEffectRuntime implements EffectRuntime {
         return executor;
     }
 
+    // -----------------------------------------------------------------------
+    // Internal helpers
+    // -----------------------------------------------------------------------
+
+    private <E extends Throwable, A> A runEffect(Effect<E, A> effect, ExecutionContext ctx) throws E {
+        if (useTrampoline) {
+            return executeTrampoline(effect, ctx);
+        } else {
+            return execute(effect, ctx);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Recursive (non-stack-safe) execution — kept for reference / legacy
+    // -----------------------------------------------------------------------
+
     private <E extends Throwable, A> A execute(
             Effect<E, A> effect,
             ExecutionContext ctx
     ) throws E {
-        // Checkpoint at boundary
         if (Thread.interrupted()) {
             throw new CancelledException();
         }
@@ -151,10 +195,7 @@ public class DefaultEffectRuntime implements EffectRuntime {
                 try {
                     yield suspend.thunk().get();
                 } catch (Exception e) {
-                    if (e instanceof RuntimeException re) {
-                        throw re;
-                    }
-                    // Convert checked exception to RuntimeException
+                    if (e instanceof RuntimeException re) throw re;
                     throw new RuntimeException(e);
                 }
             }
@@ -165,6 +206,8 @@ public class DefaultEffectRuntime implements EffectRuntime {
             case Effect.Scoped<E, A> scoped -> executeScoped(scoped, ctx);
             case Effect.Generate<E, A> generate -> executeGenerate(generate, ctx);
             case Effect.PerformCapability<E, A> perform -> executePerformCapability(perform, ctx);
+            case Effect.Timeout<?, ?> timeout -> (A) executeTimeout((Effect.Timeout<?, ?>) timeout, ctx);
+            case Effect.Race<?, ?> race -> (A) executeRace((Effect.Race<?, ?>) race, ctx);
         };
     }
 
@@ -174,8 +217,7 @@ public class DefaultEffectRuntime implements EffectRuntime {
             ExecutionContext ctx
     ) throws E {
         A intermediate = (A) execute((Effect<E, A>) flatMap.source(), ctx);
-        Effect<E, B> next = flatMap.f().apply(intermediate);
-        return execute(next, ctx);
+        return execute(flatMap.f().apply(intermediate), ctx);
     }
 
     @SuppressWarnings("unchecked")
@@ -185,15 +227,12 @@ public class DefaultEffectRuntime implements EffectRuntime {
     ) throws E2 {
         try {
             A result = (A) execute((Effect<E, A>) fold.source(), ctx);
-            Effect<E2, B> next = fold.onSuccess().apply(result);
-            return execute(next, ctx);
+            return execute(fold.onSuccess().apply(result), ctx);
         } catch (CancelledException e) {
             throw e;
         } catch (Throwable error) {
-            @SuppressWarnings("unchecked")
-            E typedError = (E) error;
-            Effect<E2, B> recovery = fold.onError().apply(typedError);
-            return execute(recovery, ctx);
+            @SuppressWarnings("unchecked") E typedError = (E) error;
+            return execute(fold.onError().apply(typedError), ctx);
         }
     }
 
@@ -207,8 +246,7 @@ public class DefaultEffectRuntime implements EffectRuntime {
         } catch (CancelledException e) {
             throw e;
         } catch (Throwable error) {
-            @SuppressWarnings("unchecked")
-            E typedError = (E) error;
+            @SuppressWarnings("unchecked") E typedError = (E) error;
             throw mapError.f().apply(typedError);
         }
     }
@@ -222,33 +260,26 @@ public class DefaultEffectRuntime implements EffectRuntime {
             EffectScopeRuntime scope = new EffectScopeRuntime(taskScope, this);
 
             try {
-                // Execute the scoped body
                 Effect<E, A> program = scoped.body().apply(scope);
                 A result = execute(program, ctx);
 
-                // Wait for all forked effects to complete
                 taskScope.join();
                 taskScope.throwIfFailed();
 
                 return result;
             } catch (Throwable t) {
-                // On error, cancel all forked fibers
                 try {
                     unsafeRun(scope.cancelAll());
-                } catch (Throwable ignored) {
-                    // Ignore cancellation errors
-                }
+                } catch (Throwable ignored) { }
                 throw t;
             }
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new CancelledException(e);
-        } catch (java.util.concurrent.ExecutionException e) {
+        } catch (ExecutionException e) {
             Throwable cause = e.getCause();
-            if (cause instanceof RuntimeException re) {
-                throw re;
-            }
+            if (cause instanceof RuntimeException re) throw re;
             throw new RuntimeException(cause);
         }
     }
@@ -258,16 +289,11 @@ public class DefaultEffectRuntime implements EffectRuntime {
             Effect.Generate<E, A> generate,
             ExecutionContext ctx
     ) throws E {
-        GeneratorContextImpl<E> genCtx = new GeneratorContextImpl<>(
-                generate.handler(),
-                this
-        );
+        GeneratorContextImpl<E> genCtx = new GeneratorContextImpl<>(generate.handler(), this);
         try {
             return generate.generator().generate(genCtx);
         } catch (Throwable e) {
-            if (e instanceof RuntimeException re) {
-                throw re;
-            }
+            if (e instanceof RuntimeException re) throw re;
             throw (E) e;
         }
     }
@@ -280,15 +306,99 @@ public class DefaultEffectRuntime implements EffectRuntime {
         try {
             return ctx.getCapabilityHandler().handle(perform.capability());
         } catch (Exception e) {
-            if (e instanceof RuntimeException re) {
-                throw re;
-            }
+            if (e instanceof RuntimeException re) throw re;
             throw (E) e;
         }
     }
 
-    private record DefaultCancellationHandle(Thread executionThread, CompletableFuture<Void> completionFuture,
-                                             AtomicBoolean cancelled) implements CancellationHandle {
+    @SuppressWarnings("unchecked")
+    private <E extends Throwable, A> A executeTimeout(
+            Effect.Timeout<E, A> timeout,
+            ExecutionContext ctx
+    ) {
+        Duration duration = timeout.duration();
+        CompletableFuture<A> future = new CompletableFuture<>();
+
+        executor.execute(() -> {
+            try {
+                A result = executeTrampoline(timeout.effect(), ctx);
+                future.complete(result);
+            } catch (Throwable t) {
+                future.completeExceptionally(t);
+            }
+        });
+
+        try {
+            return future.get(duration.toMillis(), TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            future.cancel(true);
+            throw new TimeoutException(duration);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) throw re;
+            throw new RuntimeException(cause);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CancelledException(e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private <E extends Throwable, A> A executeRace(
+            Effect.Race<E, A> race,
+            ExecutionContext ctx
+    ) {
+        List<Effect<E, A>> effects = (List<Effect<E, A>>) race.effects();
+        if (effects.isEmpty()) {
+            throw new IllegalArgumentException("race() requires at least one effect");
+        }
+
+        CompletableFuture<Either<Throwable, A>> winner = new CompletableFuture<>();
+        List<CompletableFuture<Void>> tasks = new ArrayList<>();
+
+        for (Effect<E, A> effect : effects) {
+            CompletableFuture<Void> task = CompletableFuture.runAsync(() -> {
+                try {
+                    A result = executeTrampoline(effect, ctx);
+                    winner.complete(Either.right(result));
+                } catch (Throwable t) {
+                    winner.complete(Either.left(t));
+                }
+            }, executor);
+            tasks.add(task);
+        }
+
+        try {
+            Either<Throwable, A> result = winner.get();
+            // Cancel remaining tasks
+            tasks.forEach(t -> t.cancel(true));
+            return switch (result) {
+                case Either.Right<Throwable, A> right -> right.value();
+                case Either.Left<Throwable, A> left -> {
+                    Throwable err = left.value();
+                    if (err instanceof RuntimeException re) throw re;
+                    throw new RuntimeException(err);
+                }
+            };
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new CancelledException(e);
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) throw re;
+            throw new RuntimeException(cause);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // CancellationHandle
+    // -----------------------------------------------------------------------
+
+    private record DefaultCancellationHandle(
+            Thread executionThread,
+            CompletableFuture<Void> completionFuture,
+            AtomicBoolean cancelled
+    ) implements CancellationHandle {
 
         @Override
         public void cancel() {
@@ -307,7 +417,7 @@ public class DefaultEffectRuntime implements EffectRuntime {
             try {
                 completionFuture.get();
             } catch (ExecutionException e) {
-                // Completed with error
+                // Completed with error — that's fine for await()
             }
         }
 
@@ -318,7 +428,7 @@ public class DefaultEffectRuntime implements EffectRuntime {
                 return true;
             } catch (ExecutionException e) {
                 return true;
-            } catch (TimeoutException e) {
+            } catch (java.util.concurrent.TimeoutException e) {
                 return false;
             }
         }
@@ -328,9 +438,6 @@ public class DefaultEffectRuntime implements EffectRuntime {
     // Stack-Safe Trampolined Execution
     // ========================================================================
 
-    /**
-     * Trampolined execution - stack-safe for arbitrarily deep effect chains.
-     */
     @SuppressWarnings("unchecked")
     private <E extends Throwable, A> A executeTrampoline(
             Effect<E, A> effect,
@@ -342,12 +449,11 @@ public class DefaultEffectRuntime implements EffectRuntime {
         java.util.Deque<Continuation> continuations = new java.util.ArrayDeque<>();
 
         while (true) {
-            // Check for cancellation
             if (Thread.interrupted()) {
                 throw new CancelledException();
             }
 
-            // Handle error propagation
+            // Error propagation
             if (currentError != null) {
                 if (continuations.isEmpty()) {
                     throw (E) currentError;
@@ -355,7 +461,6 @@ public class DefaultEffectRuntime implements EffectRuntime {
 
                 Continuation cont = continuations.pop();
                 if (cont instanceof FoldContinuation foldCont) {
-                    // Found error handler
                     try {
                         currentEffect = foldCont.onError.apply(currentError);
                         currentError = null;
@@ -363,14 +468,13 @@ public class DefaultEffectRuntime implements EffectRuntime {
                         currentError = t;
                     }
                 } else if (cont instanceof MapErrorContinuation mapErrorCont) {
-                    // Transform error
                     try {
                         currentError = mapErrorCont.f.apply(currentError);
                     } catch (Throwable t) {
                         currentError = t;
                     }
                 } else {
-                    // Other continuations can't handle errors, keep propagating
+                    // Non-error continuations: keep propagating
                     continue;
                 }
             }
@@ -384,7 +488,6 @@ public class DefaultEffectRuntime implements EffectRuntime {
                         currentValue = result.value;
                         currentEffect = null;
 
-                        // Apply continuations
                         while (!continuations.isEmpty()) {
                             Continuation cont = continuations.pop();
                             if (cont instanceof FlatMapContinuation flatMapCont) {
@@ -394,13 +497,11 @@ public class DefaultEffectRuntime implements EffectRuntime {
                                 currentEffect = foldCont.onSuccess.apply(currentValue);
                                 break;
                             } else if (cont instanceof MapErrorContinuation) {
-                                // MapError doesn't affect success values, skip it
                                 continue;
                             }
                         }
-                        
+
                         if (currentEffect == null && continuations.isEmpty()) {
-                            // No more continuations - we're done
                             return (A) currentValue;
                         }
                     } else if (result.error != null) {
@@ -473,15 +574,13 @@ public class DefaultEffectRuntime implements EffectRuntime {
 
             case Effect.Suspend<E, A> suspend -> {
                 try {
-                    A result = suspend.thunk().get();
-                    yield TrampolineResult.done(result);
+                    yield TrampolineResult.done(suspend.thunk().get());
                 } catch (Exception e) {
                     yield TrampolineResult.error(e);
                 }
             }
 
             case Effect.FlatMap<E, ?, A> flatMap -> {
-                // Push continuation and evaluate source
                 java.util.function.Function<?, ?> f = flatMap.f();
                 continuations.push(new FlatMapContinuation(
                         (java.util.function.Function<Object, Effect<?, ?>>) f
@@ -490,7 +589,6 @@ public class DefaultEffectRuntime implements EffectRuntime {
             }
 
             case Effect.Fold<?, E, ?, A> fold -> {
-                // Push fold continuation and evaluate source
                 java.util.function.Function<?, ?> onError = fold.onError();
                 java.util.function.Function<?, ?> onSuccess = fold.onSuccess();
                 continuations.push(new FoldContinuation(
@@ -501,7 +599,6 @@ public class DefaultEffectRuntime implements EffectRuntime {
             }
 
             case Effect.MapError<?, E, A> mapError -> {
-                // Push error mapping continuation
                 java.util.function.Function<?, ?> f = mapError.f();
                 continuations.push(new MapErrorContinuation(
                         (java.util.function.Function<Throwable, Throwable>) f
@@ -520,8 +617,7 @@ public class DefaultEffectRuntime implements EffectRuntime {
 
             case Effect.Scoped<E, A> scoped -> {
                 try {
-                    A result = executeScoped(scoped, ctx);
-                    yield TrampolineResult.done(result);
+                    yield TrampolineResult.done(executeScoped(scoped, ctx));
                 } catch (Throwable t) {
                     yield TrampolineResult.error(t);
                 }
@@ -529,8 +625,7 @@ public class DefaultEffectRuntime implements EffectRuntime {
 
             case Effect.Generate<E, A> generate -> {
                 try {
-                    A result = executeGenerate(generate, ctx);
-                    yield TrampolineResult.done(result);
+                    yield TrampolineResult.done(executeGenerate(generate, ctx));
                 } catch (Throwable t) {
                     yield TrampolineResult.error(t);
                 }
@@ -538,8 +633,23 @@ public class DefaultEffectRuntime implements EffectRuntime {
 
             case Effect.PerformCapability<E, A> perform -> {
                 try {
-                    A result = executePerformCapability(perform, ctx);
-                    yield TrampolineResult.done(result);
+                    yield TrampolineResult.done(executePerformCapability(perform, ctx));
+                } catch (Throwable t) {
+                    yield TrampolineResult.error(t);
+                }
+            }
+
+            case Effect.Timeout<?, ?> timeout -> {
+                try {
+                    yield TrampolineResult.done(executeTimeout((Effect.Timeout<?, ?>) timeout, ctx));
+                } catch (Throwable t) {
+                    yield TrampolineResult.error(t);
+                }
+            }
+
+            case Effect.Race<?, ?> race -> {
+                try {
+                    yield TrampolineResult.done(executeRace((Effect.Race<?, ?>) race, ctx));
                 } catch (Throwable t) {
                     yield TrampolineResult.error(t);
                 }

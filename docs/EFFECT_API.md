@@ -375,7 +375,7 @@ record Summary(User user, List<Order> orders, Preferences prefs) {}
 Effect<Throwable, Summary> summary = fetchUser(id)
     .zipPar(fetchOrders(id), Tuple2::new)
     .zipPar(fetchPreferences(id), (userOrders, prefs) ->
-        new Summary(userOrders._1(), userOrders._2(), prefs)
+        new Summary(userOrders.first(), userOrders.second(), prefs)
     );
 ```
 
@@ -616,8 +616,8 @@ import com.cajunsystems.roux.Effects.Tuple2;
 import com.cajunsystems.roux.Effects.Tuple3;
 
 Tuple2<String, Integer> pair = new Tuple2<>("hello", 42);
-String first = pair._1();
-Integer second = pair._2();
+String first = pair.first();
+Integer second = pair.second();
 
 Tuple3<String, Integer, Boolean> triple = new Tuple3<>("hello", 42, true);
 ```
@@ -673,30 +673,47 @@ Effect<Throwable, Dashboard> dashboard = par(
 ### Retry Pattern
 
 ```java
+// Simple retry — 3 extra attempts, no delay
 Effect<Throwable, String> withRetry = fetchData()
-    .catchAll(e1 -> {
-        Thread.sleep(1000);
-        return fetchData();
-    })
-    .catchAll(e2 -> {
-        Thread.sleep(2000);
-        return fetchData();
-    })
-    .catchAll(e3 -> Effect.succeed("default"));
+    .retry(3)
+    .catchAll(e -> Effect.succeed("default"));
+
+// Retry with exponential-backoff delay
+Effect<Throwable, String> withBackoff = fetchData()
+    .retryWithDelay(3, Duration.ofMillis(500))
+    .catchAll(e -> Effect.succeed("default"));
 ```
 
 ### Resource Management
 
+Use `Effect.scoped` to ensure cleanup runs when the scope exits. Fork the cleanup
+as the **last** thing in the scope body so it executes after the main work is done,
+or use a try-finally pattern inside a `suspend`:
+
 ```java
-Effect<Throwable, String> readFile = Effect.scoped(scope -> {
+Effect<Throwable, String> readFile = Effect.suspend(() -> {
     FileHandle file = openFile("data.txt");
-    scope.fork(Effect.suspend(() -> {
-        file.close();
-        return null;
-    }));
-    
-    return readContent(file);
-    // file.close() called automatically when scope exits
+    try {
+        return readContent(file);
+    } finally {
+        file.close(); // guaranteed regardless of success or failure
+    }
+});
+```
+
+For more complex resource lifetime management with concurrent fibers, use
+`Effect.scoped` to ensure all forked effects are cancelled when the scope exits:
+
+```java
+Effect<Throwable, String> program = Effect.scoped(scope -> {
+    return task1.forkIn(scope).flatMap(fiber1 ->
+        task2.forkIn(scope).flatMap(fiber2 ->
+            fiber1.join().flatMap(r1 ->
+                fiber2.join().map(r2 -> r1 + r2)
+            )
+        )
+    );
+    // Both fibers auto-cancelled if scope exits with an error
 });
 ```
 
