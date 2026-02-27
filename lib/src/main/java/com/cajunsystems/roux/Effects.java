@@ -1,6 +1,7 @@
 package com.cajunsystems.roux;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.function.BiFunction;
 import java.util.function.Function;
@@ -118,7 +119,9 @@ public final class Effects {
                         })
                 );
             }
-            return joinEffect.map(List::copyOf);
+            // Use unmodifiableList rather than List.copyOf to allow null elements
+            // (e.g. Void-returning effects).
+            return joinEffect.map(results -> Collections.unmodifiableList(new ArrayList<>(results)));
         });
     }
 
@@ -169,7 +172,7 @@ public final class Effects {
                     })
             );
         }
-        return acc.map(List::copyOf);
+        return acc.map(results -> Collections.unmodifiableList(new ArrayList<>(results)));
     }
 
     /**
@@ -190,7 +193,7 @@ public final class Effects {
                     })
             );
         }
-        return acc.map(List::copyOf);
+        return acc.map(results -> Collections.unmodifiableList(new ArrayList<>(results)));
     }
 
     // -----------------------------------------------------------------------
