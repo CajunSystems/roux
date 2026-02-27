@@ -210,7 +210,7 @@ public sealed interface Effect<E extends Throwable, A> {
     /**
      * Retry this effect up to {@code maxAttempts} additional times on failure.
      * Retries happen immediately without delay; use {@link #retryWithDelay} for
-     * back-off strategies.
+     * back-off strategies, or {@link #retry(RetryPolicy)} for full control.
      *
      * @param maxAttempts the maximum number of additional attempts (0 = no retry)
      */
@@ -233,6 +233,50 @@ public sealed interface Effect<E extends Throwable, A> {
         return self.widen().catchAll(__ ->
                 Effect.<Throwable>sleep(delay).flatMap(_u -> self.retryWithDelay(maxAttempts - 1, delay))
         );
+    }
+
+    /**
+     * Retry this effect according to the given {@link RetryPolicy}.
+     *
+     * <p>The policy controls:
+     * <ul>
+     *   <li>maximum number of retries</li>
+     *   <li>delay between retries (immediate, fixed, or exponential)</li>
+     *   <li>an optional jitter spread to avoid thundering-herd problems</li>
+     *   <li>a per-error predicate to skip retrying on unrecoverable errors</li>
+     * </ul>
+     *
+     * <pre>{@code
+     * RetryPolicy policy = RetryPolicy.exponential(Duration.ofMillis(50))
+     *     .maxAttempts(5)
+     *     .maxDelay(Duration.ofSeconds(10))
+     *     .withJitter(0.2)
+     *     .retryWhen(e -> e instanceof IOException);
+     *
+     * effect.retry(policy);
+     * }</pre>
+     *
+     * @param policy the retry policy to apply
+     */
+    default Effect<Throwable, A> retry(RetryPolicy policy) {
+        return retryLoop(this, policy, 0);
+    }
+
+    private static <E extends Throwable, A> Effect<Throwable, A> retryLoop(
+            Effect<E, A> effect,
+            RetryPolicy policy,
+            int retriesSoFar
+    ) {
+        return effect.widen().catchAll(error -> {
+            if (!policy.shouldRetry(error, retriesSoFar)) {
+                return Effect.fail(error);
+            }
+            Duration delay = policy.computeDelay(retriesSoFar);
+            Effect<Throwable, ?> wait = delay.isZero()
+                    ? Effect.unit()
+                    : Effect.sleep(delay);
+            return wait.flatMap(__ -> retryLoop(effect, policy, retriesSoFar + 1));
+        });
     }
 
     /**
