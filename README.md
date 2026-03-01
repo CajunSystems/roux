@@ -206,6 +206,9 @@ User user = runtime.unsafeRunWithHandler(userEffect, handler);
 - `orElse` - Fallback to alternative effect
 - `attempt` - Convert to `Either<E, A>` for explicit handling
 - `zipPar` - Run effects in parallel and combine results
+- `retry(int)` / `retryWithDelay(int, Duration)` - Simple retry helpers
+- `retry(RetryPolicy)` - Declarative retry with backoff, jitter, and per-error predicates
+- `timeout(Duration)` - Fail with `TimeoutException` if too slow
 
 ### Structured Concurrency
 
@@ -223,6 +226,23 @@ User user = runtime.unsafeRunWithHandler(userEffect, handler);
 - `zipPar(other, combiner)` - Parallel execution with result combination
 - `Effects.par()` - Static helpers for 2, 3, 4 parallel effects
 - Automatic cancellation at effect boundaries
+
+### Resource Management
+
+- `Resource.make(acquire, release)` - Safe acquire/release with guaranteed cleanup
+- `Resource.fromCloseable(acquire)` - Wrap any `AutoCloseable`
+- `resource.use(f)` - Acquire, use, and always release (success or failure)
+- `Resource.ensuring(effect, finalizer)` - Run a finalizer after any effect (try-finally equivalent)
+
+### Retry Policies
+
+- `RetryPolicy.immediate()` - Retry without delay
+- `RetryPolicy.fixed(Duration)` - Constant delay between retries
+- `RetryPolicy.exponential(Duration)` - Doubling delay (base, base×2, base×4, …)
+- `.maxAttempts(n)` - Limit total retry count
+- `.maxDelay(Duration)` - Cap the computed delay
+- `.withJitter(factor)` - Add ±factor randomness to avoid thundering herds
+- `.retryWhen(Predicate<Throwable>)` - Only retry matching errors
 
 ### Runtime Execution
 
@@ -297,6 +317,43 @@ Effect<Throwable, Dashboard> fetchDashboard() {
 }
 ```
 
+### Retry with Exponential Back-off
+```java
+RetryPolicy policy = RetryPolicy.exponential(Duration.ofMillis(100))
+    .maxAttempts(5)
+    .maxDelay(Duration.ofSeconds(10))
+    .withJitter(0.2)
+    .retryWhen(e -> e instanceof IOException);
+
+Effect<Throwable, String> resilient = Effect.suspend(() -> httpClient.get(url))
+    .retry(policy);
+```
+
+### Resource Management (bracket / ensuring)
+```java
+// Guaranteed cleanup via Resource.make
+Resource<Connection> connResource = Resource.make(
+    Effect.suspend(() -> pool.acquire()),
+    conn -> Effect.runnable(conn::close)
+);
+
+Effect<Throwable, Result> query = connResource.use(conn ->
+    Effect.suspend(() -> conn.execute("SELECT ..."))
+);
+// Connection is always closed — success, failure, or cancellation.
+
+// AutoCloseable shorthand
+Resource<BufferedReader> readerResource = Resource.fromCloseable(
+    Effect.suspend(() -> new BufferedReader(new FileReader("data.csv")))
+);
+
+// try-finally equivalent
+Effect<Throwable, String> withCleanup = Resource.ensuring(
+    Effect.suspend(() -> riskyOperation()),
+    Effect.runnable(() -> cleanup())
+);
+```
+
 ### Background Task with Timeout
 ```java
 CancellationHandle handle = runtime.runAsync(
@@ -312,31 +369,9 @@ if (!handle.await(Duration.ofSeconds(5))) {
 }
 ```
 
-## Known Limitations
+## Stack Safety
 
-### Deep Effect Chains
-
-Roux uses recursive execution for effect composition. Very deep effect chains (>1000 nested `flatMap` operations) may cause stack overflow.
-
-**Workaround:** Use loops inside `suspend()` rather than recursive `flatMap` chains:
-```java
-// ❌ Avoid: Deep recursive chains
-Effect<Throwable, Integer> effect = Effect.succeed(0);
-for (int i = 0; i < 100000; i++) {
-    effect = effect.flatMap(n -> Effect.succeed(n + 1));
-}
-
-// ✅ Prefer: Loop inside suspend
-Effect<Throwable, Integer> effect = Effect.suspend(() -> {
-    int result = 0;
-    for (int i = 0; i < 100000; i++) {
-        result = result + 1;
-    }
-    return result;
-});
-```
-
-**Stack Safety:** Roux uses **trampolined execution** by default, providing true stack safety for arbitrarily deep effect chains. You can chain millions of `flatMap` operations without stack overflow.
+Roux uses **trampolined execution** by default, providing true stack safety for arbitrarily deep effect chains. You can chain millions of `flatMap` operations without stack overflow.
 
 ## Roadmap
 
@@ -349,9 +384,9 @@ Effect<Throwable, Integer> effect = Effect.suspend(() -> {
 - [x] Generator-style effect building
 - [x] Scoped structured concurrency
 - [x] Stack-safe trampolined execution
-- [ ] Retry policies with backoff
-- [ ] Resource management (bracket, ensuring)
-- [ ] Race and timeout combinators
+- [x] Race and timeout combinators
+- [x] Retry policies with backoff (`RetryPolicy` — immediate, fixed, exponential, jitter, `retryWhen`)
+- [x] Resource management (`Resource<A>` — make/use/fromCloseable, `Resource.ensuring`)
 - [ ] Environment/Layer system for dependency injection
 
 ## Related Projects
