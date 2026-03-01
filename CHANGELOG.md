@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 0.2.0
+## [0.2.0] - 2026-03-01
 
 ### Added
 
@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`tapError(Consumer<E>)`** — Execute a side-effect on failure without changing the error
 - **`retry(int)`** — Retry on failure up to N additional times (immediate, no delay)
 - **`retryWithDelay(int, Duration)`** — Retry with a fixed pause between attempts
+- **`retry(RetryPolicy)`** — Declarative retry with configurable backoff, jitter, and per-error predicates
 - **`timeout(Duration)`** — Fail with `TimeoutException` if not completed within the duration
 
 #### New Effect Primitives
@@ -32,6 +33,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`Effects.sequence(List)`** — Run a list of effects sequentially and collect results
 - **`Effects.traverse(List, Function)`** — Map each element to an effect and run sequentially
 - **`Effects.parAll(List)`** — Run a list of effects in parallel and collect results
+
+#### Resource Management
+- **`Resource<A>`** — Managed resource type guaranteeing release on success, failure, and cancellation
+- **`Resource.make(acquire, release)`** — Acquire a resource with a paired release action
+- **`Resource.fromCloseable(acquire)`** — Wrap any `AutoCloseable` as a `Resource`
+- **`resource.use(f)`** — Acquire, apply a function, and always release; original errors are preserved if release also fails
+- **`Resource.ensuring(effect, finalizer)`** — Run a finalizer after any effect (try-finally equivalent); finalizer errors are suppressed
+
+#### Retry Policies
+- **`RetryPolicy`** — Declarative retry strategy with a fluent builder API
+- **`RetryPolicy.immediate()`** — Retry with no delay between attempts
+- **`RetryPolicy.fixed(Duration)`** — Constant delay between retries
+- **`RetryPolicy.exponential(Duration)`** — Delay doubles on each attempt (base, base×2, base×4, …)
+- **`.maxAttempts(n)`** — Cap the number of retry attempts
+- **`.maxDelay(Duration)`** — Cap the computed delay (useful with exponential backoff)
+- **`.withJitter(factor)`** — Add ±factor random spread to delays to avoid thundering herds
+- **`.retryWhen(Predicate<Throwable>)`** — Only retry when the predicate matches the error
 
 #### Enriched Data Types
 - **`Either.map(f)`** — Transform the right value
@@ -66,11 +84,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Tuple2`/`Tuple3` accessors renamed from `_1()`/`_2()` to `first()`/`second()`/`third()` for Java-idiomatic naming
 
 ### Testing
-- 151 total tests (up from ~100 in 0.1.0)
+- 205 total tests (up from ~100 in 0.1.0)
 - New test class `EffectCombinatorTest` — covers tap, tapError, retry, retryWithDelay, timeout, unit, runnable, sleep, when, unless
 - New test class `EffectsCollectionsTest` — covers sequence, traverse, parAll, race
 - New test class `EitherTest` — covers all new Either methods
 - New test class `CapabilityHandlerBuilderTest` — covers builder(), compose(), orElse(), CompositeCapabilityHandler
+- New test class `RetryPolicyTest` — covers all RetryPolicy variants, validation, and Effect.retry(RetryPolicy) integration
+- New test class `ResourceTest` — covers acquire/release lifecycle, nesting, ensuring, and error-preservation semantics
 
 ---
 
@@ -158,4 +178,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Capability system tests
 - Generator-style effect tests
 
+[0.2.0]: https://github.com/CajunSystems/roux/releases/tag/v0.2.0
 [0.1.0]: https://github.com/CajunSystems/roux/releases/tag/v0.1.0
