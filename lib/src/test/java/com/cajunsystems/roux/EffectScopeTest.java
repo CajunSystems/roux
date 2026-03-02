@@ -1,5 +1,7 @@
 package com.cajunsystems.roux;
 
+import com.cajunsystems.roux.capability.Capability;
+import com.cajunsystems.roux.capability.CapabilityHandler;
 import com.cajunsystems.roux.data.Unit;
 import com.cajunsystems.roux.runtime.DefaultEffectRuntime;
 import org.junit.jupiter.api.Test;
@@ -11,6 +13,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class EffectScopeTest {
     private final EffectRuntime runtime = DefaultEffectRuntime.create();
+
+    sealed interface ScopeForkCapability<R> extends Capability<R> {
+        record GetValue(String key) implements ScopeForkCapability<String> {}
+    }
 
     @Test
     void testScopedFork() throws Throwable {
@@ -192,5 +198,21 @@ class EffectScopeTest {
         });
 
         assertThrows(IllegalStateException.class, () -> runtime.unsafeRun(program));
+    }
+
+    @Test
+    void testScopedForkInheritsCapabilityHandler() throws Throwable {
+        CapabilityHandler<Capability<?>> handler = CapabilityHandler.builder()
+                .on(ScopeForkCapability.GetValue.class, cap -> "value-for-" + cap.key())
+                .build();
+
+        Effect<Throwable, String> program = Effect.scoped(scope ->
+                Effect.from(new ScopeForkCapability.GetValue("k1"))
+                        .forkIn(scope)
+                        .flatMap(Fiber::join)
+        );
+
+        String result = runtime.unsafeRunWithHandler(program, handler);
+        assertEquals("value-for-k1", result);
     }
 }

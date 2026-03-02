@@ -1,7 +1,6 @@
 package com.cajunsystems.roux.runtime;
 
 import com.cajunsystems.roux.Effect;
-import com.cajunsystems.roux.EffectRuntime;
 import com.cajunsystems.roux.EffectScope;
 import com.cajunsystems.roux.Fiber;
 import com.cajunsystems.roux.data.Unit;
@@ -13,13 +12,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 class EffectScopeRuntime implements EffectScope {
     private final StructuredTaskScope<Object> taskScope;
-    private final EffectRuntime runtime;
+    private final DefaultEffectRuntime runtime;
+    private final ExecutionContext parentCtx;
     private final List<Fiber<?, ?>> forkedFibers = new CopyOnWriteArrayList<>();
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
 
-    EffectScopeRuntime(StructuredTaskScope<Object> taskScope, EffectRuntime runtime) {
+    EffectScopeRuntime(
+            StructuredTaskScope<Object> taskScope,
+            DefaultEffectRuntime runtime,
+            ExecutionContext parentCtx
+    ) {
         this.taskScope = taskScope;
         this.runtime = runtime;
+        this.parentCtx = parentCtx;
     }
 
     @Override
@@ -31,7 +36,7 @@ class EffectScopeRuntime implements EffectScope {
 
             // Create Fork effect and execute it
             Effect.Fork<E, A> forkEffect = new Effect.Fork<>(effect);
-            Fiber<E, A> fiber = runtime.executeFork(forkEffect);
+            Fiber<E, A> fiber = runtime.executeFork(forkEffect, parentCtx);
 
             // Track the fiber in this scope
             forkedFibers.add(fiber);

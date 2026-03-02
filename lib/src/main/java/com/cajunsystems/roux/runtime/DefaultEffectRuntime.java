@@ -125,7 +125,7 @@ public class DefaultEffectRuntime implements EffectRuntime, AutoCloseable {
         return executeFork(fork, ExecutionContext.root());
     }
 
-    private <E extends Throwable, A> Fiber<E, A> executeFork(
+    <E extends Throwable, A> Fiber<E, A> executeFork(
             Effect.Fork<E, A> fork,
             ExecutionContext parentCtx
     ) {
@@ -257,7 +257,7 @@ public class DefaultEffectRuntime implements EffectRuntime, AutoCloseable {
             ExecutionContext ctx
     ) throws E {
         try (var taskScope = new StructuredTaskScope.ShutdownOnFailure()) {
-            EffectScopeRuntime scope = new EffectScopeRuntime(taskScope, this);
+            EffectScopeRuntime scope = new EffectScopeRuntime(taskScope, this, ctx);
 
             try {
                 Effect<E, A> program = scoped.body().apply(scope);
