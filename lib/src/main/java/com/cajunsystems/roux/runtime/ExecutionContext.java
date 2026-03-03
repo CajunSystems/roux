@@ -2,6 +2,7 @@ package com.cajunsystems.roux.runtime;
 
 import com.cajunsystems.roux.capability.Capability;
 import com.cajunsystems.roux.capability.CapabilityHandler;
+import com.cajunsystems.roux.exception.MissingCapabilityHandlerException;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -41,7 +42,12 @@ class ExecutionContext {
         if (parent != null) {
             return parent.getCapabilityHandler();
         }
-        throw new IllegalStateException("No capability handler found in execution context");
+        throw new MissingCapabilityHandlerException(
+                "No capability handler found in execution context. " +
+                "This effect performed a capability, but no handler was installed. " +
+                "Run with EffectRuntime.unsafeRunWithHandler(effect, handler), " +
+                "or build the effect with an embedded handler via Effect.generate(..., handler)."
+        );
     }
 
     boolean isCancelled() {

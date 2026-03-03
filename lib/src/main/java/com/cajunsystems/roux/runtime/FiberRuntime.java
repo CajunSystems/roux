@@ -49,6 +49,10 @@ class FiberRuntime<E extends Throwable, A> implements Fiber<E, A> {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new CancelledException(e);
+            } catch (RuntimeException e) {
+                throw e;
+            } catch (Error e) {
+                throw e;
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
