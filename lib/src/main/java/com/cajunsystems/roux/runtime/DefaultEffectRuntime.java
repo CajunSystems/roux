@@ -7,8 +7,8 @@ import com.cajunsystems.roux.Fiber;
 import com.cajunsystems.roux.capability.Capability;
 import com.cajunsystems.roux.capability.CapabilityHandler;
 import com.cajunsystems.roux.data.Either;
-import com.cajunsystems.roux.data.Unit;
 import com.cajunsystems.roux.exception.CancelledException;
+import com.cajunsystems.roux.exception.MissingCapabilityHandlerException;
 import com.cajunsystems.roux.exception.TimeoutException;
 
 import java.time.Duration;
@@ -303,8 +303,14 @@ public class DefaultEffectRuntime implements EffectRuntime, AutoCloseable {
             Effect.PerformCapability<E, R> perform,
             ExecutionContext ctx
     ) throws E {
+        Capability<R> capability = perform.capability();
         try {
-            return ctx.getCapabilityHandler().handle(perform.capability());
+            return ctx.getCapabilityHandler().handle(capability);
+        } catch (MissingCapabilityHandlerException e) {
+            throw new MissingCapabilityHandlerException(
+                    e.getMessage() + " Capability attempted: " + capability.getClass().getName(),
+                    e
+            );
         } catch (Exception e) {
             if (e instanceof RuntimeException re) throw re;
             throw (E) e;

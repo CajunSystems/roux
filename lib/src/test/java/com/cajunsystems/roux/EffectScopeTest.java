@@ -215,4 +215,19 @@ class EffectScopeTest {
         String result = runtime.unsafeRunWithHandler(program, handler);
         assertEquals("value-for-k1", result);
     }
+
+    @Test
+    void testScopedForkMissingHandlerErrorIsActionable() {
+        Effect<Throwable, String> program = Effect.scoped(scope ->
+                Effect.from(new ScopeForkCapability.GetValue("k1"))
+                        .forkIn(scope)
+                        .flatMap(Fiber::join)
+        );
+
+        IllegalStateException error = assertThrows(IllegalStateException.class, () -> runtime.unsafeRun(program));
+        assertTrue(error.getMessage().contains("No capability handler found in execution context"));
+        assertTrue(error.getMessage().contains("unsafeRunWithHandler(effect, handler)"));
+        assertTrue(error.getMessage().contains("Effect.generate(..., handler)"));
+        assertTrue(error.getMessage().contains("Capability attempted: " + ScopeForkCapability.GetValue.class.getName()));
+    }
 }
