@@ -14,6 +14,20 @@ public interface Capability<R> {
 }
 ```
 
+#### Side-effect-only capabilities: use `Unit`, not `Void`
+
+When a capability exists only for side effects (log, metric, audit, notify), model it as
+`Capability<Unit>` and return `Unit.unit()` from handlers. This avoids `null` values and
+keeps handlers explicit and consistent.
+
+```java
+import com.cajunsystems.roux.data.Unit;
+
+sealed interface LogCapability<R> extends Capability<R> {
+    record Info(String message) implements LogCapability<Unit> {}
+}
+```
+
 ### 2. CapabilityHandler - Effect Interpreters
 
 A `CapabilityHandler<C>` interprets capabilities of type `C` and performs the actual side effects.
@@ -79,9 +93,14 @@ Effect<Throwable, Dashboard> dashboard = new GetUser("123")
 Use the fluent `CapabilityHandler.builder()` for clean, lambda-friendly handler definitions:
 
 ```java
+import com.cajunsystems.roux.data.Unit;
+
 CapabilityHandler<Capability<?>> handler = CapabilityHandler.builder()
     .on(MyCapability.Fetch.class, fetch -> httpClient.get(fetch.url()))
-    .on(MyCapability.Log.class,   log   -> { logger.info(log.message()); return null; })
+    .on(MyCapability.Log.class,   log   -> {
+        logger.info(log.message());
+        return Unit.unit();
+    })
     .build();
 ```
 

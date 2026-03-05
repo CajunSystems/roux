@@ -64,17 +64,19 @@ Automatically acquire and release resources with guaranteed cleanup.
 ### Capability Definition
 
 ```java
+import com.cajunsystems.roux.data.Unit;
+
 public sealed interface ResourceCapability<R> extends Capability<R> {
     record Acquire<T>(String resourceId, Supplier<T> acquire) 
         implements ResourceCapability<T> {}
     
     record Release<T>(T resource, Consumer<T> release) 
-        implements ResourceCapability<Void> {}
+        implements ResourceCapability<Unit> {}
     
     record Bracket<T, R>(
         Capability<T> acquire,
         Function<T, Capability<R>> use,
-        Function<T, Capability<Void>> release
+        Function<T, Capability<Unit>> release
     ) implements ResourceCapability<R> {}
 }
 ```
@@ -92,7 +94,7 @@ public class ResourceHandler implements CapabilityHandler<ResourceCapability<?>>
             
             case ResourceCapability.Release<?> rel -> {
                 rel.release().accept(rel.resource());
-                yield (R) null;
+                yield (R) Unit.unit();
             }
             
             case ResourceCapability.Bracket<?, ?> bracket -> {
@@ -206,6 +208,8 @@ Transparent caching with TTL support.
 ### Capability Definition
 
 ```java
+import com.cajunsystems.roux.data.Unit;
+
 public sealed interface CacheCapability<R> extends Capability<R> {
     record Cached<T>(
         String key,
@@ -213,9 +217,9 @@ public sealed interface CacheCapability<R> extends Capability<R> {
         Duration ttl
     ) implements CacheCapability<T> {}
     
-    record Invalidate(String key) implements CacheCapability<Void> {}
+    record Invalidate(String key) implements CacheCapability<Unit> {}
     
-    record Clear() implements CacheCapability<Void> {}
+    record Clear() implements CacheCapability<Unit> {}
 }
 ```
 
@@ -253,12 +257,12 @@ public class CacheHandler implements CapabilityHandler<CacheCapability<?>> {
             
             case CacheCapability.Invalidate inv -> {
                 cache.remove(inv.key());
-                yield (R) null;
+                yield (R) Unit.unit();
             }
             
             case CacheCapability.Clear clear -> {
                 cache.clear();
-                yield (R) null;
+                yield (R) Unit.unit();
             }
         };
     }
@@ -286,18 +290,20 @@ Automatic span creation and attribute tracking for observability.
 ### Capability Definition
 
 ```java
+import com.cajunsystems.roux.data.Unit;
+
 public sealed interface TracingCapability<R> extends Capability<R> {
     record StartSpan(String name, Map<String, String> attributes) 
         implements TracingCapability<SpanId> {}
     
     record EndSpan(SpanId id, SpanStatus status) 
-        implements TracingCapability<Void> {}
+        implements TracingCapability<Unit> {}
     
     record AddAttribute(SpanId id, String key, String value) 
-        implements TracingCapability<Void> {}
+        implements TracingCapability<Unit> {}
     
     record AddEvent(SpanId id, String name, Map<String, String> attributes) 
-        implements TracingCapability<Void> {}
+        implements TracingCapability<Unit> {}
     
     record Traced<T>(
         String spanName,
@@ -336,7 +342,7 @@ public class TracingHandler implements CapabilityHandler<TracingCapability<?>> {
                         : StatusCode.ERROR);
                     span.end();
                 }
-                yield (R) null;
+                yield (R) Unit.unit();
             }
             
             case TracingCapability.AddAttribute attr -> {
@@ -344,7 +350,7 @@ public class TracingHandler implements CapabilityHandler<TracingCapability<?>> {
                 if (span != null) {
                     span.setAttribute(attr.key(), attr.value());
                 }
-                yield (R) null;
+                yield (R) Unit.unit();
             }
             
             case TracingCapability.AddEvent event -> {
@@ -353,7 +359,7 @@ public class TracingHandler implements CapabilityHandler<TracingCapability<?>> {
                     span.addEvent(event.name(), 
                         Attributes.of(event.attributes()));
                 }
-                yield (R) null;
+                yield (R) Unit.unit();
             }
             
             case TracingCapability.Traced<?> traced -> {
@@ -394,6 +400,8 @@ Prevent cascading failures with automatic circuit breaking.
 ### Capability Definition
 
 ```java
+import com.cajunsystems.roux.data.Unit;
+
 public sealed interface CircuitBreakerCapability<R> extends Capability<R> {
     record Protected<T>(
         String circuitName,
@@ -405,7 +413,7 @@ public sealed interface CircuitBreakerCapability<R> extends Capability<R> {
         implements CircuitBreakerCapability<CircuitState> {}
     
     record Reset(String circuitName) 
-        implements CircuitBreakerCapability<Void> {}
+        implements CircuitBreakerCapability<Unit> {}
     
     enum CircuitState { CLOSED, OPEN, HALF_OPEN }
     
@@ -471,7 +479,7 @@ public class CircuitBreakerHandler
                     circuit.failures().set(0);
                     circuit.successes().set(0);
                 }
-                yield (R) null;
+                yield (R) Unit.unit();
             }
         };
     }
@@ -624,15 +632,17 @@ Automatic metrics collection for observability.
 ### Capability Definition
 
 ```java
+import com.cajunsystems.roux.data.Unit;
+
 public sealed interface MetricsCapability<R> extends Capability<R> {
     record IncrementCounter(String name, Map<String, String> tags) 
-        implements MetricsCapability<Void> {}
+        implements MetricsCapability<Unit> {}
     
     record RecordGauge(String name, double value, Map<String, String> tags) 
-        implements MetricsCapability<Void> {}
+        implements MetricsCapability<Unit> {}
     
     record RecordHistogram(String name, double value, Map<String, String> tags) 
-        implements MetricsCapability<Void> {}
+        implements MetricsCapability<Unit> {}
     
     record Timed<T>(
         String name,
@@ -658,14 +668,14 @@ public class MetricsHandler implements CapabilityHandler<MetricsCapability<?>> {
                     .tags(toTags(counter.tags()))
                     .register(registry)
                     .increment();
-                yield (R) null;
+                yield (R) Unit.unit();
             }
             
             case MetricsCapability.RecordGauge gauge -> {
                 Gauge.builder(gauge.name(), () -> gauge.value())
                     .tags(toTags(gauge.tags()))
                     .register(registry);
-                yield (R) null;
+                yield (R) Unit.unit();
             }
             
             case MetricsCapability.RecordHistogram histogram -> {
@@ -673,7 +683,7 @@ public class MetricsHandler implements CapabilityHandler<MetricsCapability<?>> {
                     .tags(toTags(histogram.tags()))
                     .register(registry)
                     .record(histogram.value());
-                yield (R) null;
+                yield (R) Unit.unit();
             }
             
             case MetricsCapability.Timed<?> timed -> {
@@ -800,11 +810,13 @@ Distributed transactions with automatic compensation.
 ### Capability Definition
 
 ```java
+import com.cajunsystems.roux.data.Unit;
+
 public sealed interface SagaCapability<R> extends Capability<R> {
     record Step<T>(
         String stepName,
         Capability<T> action,
-        Function<T, Capability<Void>> compensation
+        Function<T, Capability<Unit>> compensation
     ) implements SagaCapability<T> {}
     
     record GetSteps() implements SagaCapability<List<String>> {}
@@ -818,7 +830,7 @@ public class SagaHandler implements CapabilityHandler<SagaCapability<?>> {
     private final CapabilityHandler<Capability<?>> delegate;
     private final Stack<CompensationAction> compensations = new Stack<>();
     
-    record CompensationAction(String stepName, Capability<Void> action) {}
+    record CompensationAction(String stepName, Capability<Unit> action) {}
     
     @Override
     @SuppressWarnings("unchecked")
@@ -1137,6 +1149,8 @@ Record and replay capability executions for debugging and testing.
 ### Capability Definition
 
 ```java
+import com.cajunsystems.roux.data.Unit;
+
 public sealed interface ReplayCapability<R> extends Capability<R> {
     record Record<T>(Capability<T> operation) 
         implements ReplayCapability<T> {}
@@ -1145,7 +1159,7 @@ public sealed interface ReplayCapability<R> extends Capability<R> {
         implements ReplayCapability<List<CapabilityExecution>> {}
     
     record Replay(List<CapabilityExecution> history) 
-        implements ReplayCapability<Void> {}
+        implements ReplayCapability<Unit> {}
 }
 
 record CapabilityExecution(
@@ -1206,7 +1220,7 @@ public class ReplayHandler implements CapabilityHandler<ReplayCapability<?>> {
             case ReplayCapability.Replay replay -> {
                 replayHistory = replay.history();
                 replayIndex = 0;
-                yield (R) null;
+                yield (R) Unit.unit();
             }
         };
     }

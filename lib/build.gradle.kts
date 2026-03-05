@@ -18,7 +18,7 @@ repositories {
 }
 
 group = "com.cajunsystems"
-version = "0.2.1"
+version = "0.2.2"
 
 dependencies {
     // Use JUnit Jupiter for testing.
