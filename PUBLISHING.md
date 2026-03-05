@@ -37,13 +37,13 @@ This guide explains how to publish Roux to Maven Central via Sonatype.
 ./gradlew clean createCentralBundle
 ```
 
-This creates a zip file at `lib/build/distributions/roux-0.2.1-bundle.zip` containing:
-- Proper Maven directory structure (`com/cajunsystems/roux/0.2.1/`)
-- `roux-0.2.1.jar` - Main library
-- `roux-0.2.1-sources.jar` - Source code
-- `roux-0.2.1-javadoc.jar` - Javadoc
-- `roux-0.2.1.pom` - POM file
-- `roux-0.2.1.module` - Gradle metadata
+This creates a zip file at `lib/build/distributions/roux-0.2.2-bundle.zip` containing:
+- Proper Maven directory structure (`com/cajunsystems/roux/0.2.2/`)
+- `roux-0.2.2.jar` - Main library
+- `roux-0.2.2-sources.jar` - Source code
+- `roux-0.2.2-javadoc.jar` - Javadoc
+- `roux-0.2.2.pom` - POM file
+- `roux-0.2.2.module` - Gradle metadata
 - `.asc` files - GPG signatures for all artifacts
 - `.md5`, `.sha1`, `.sha256`, `.sha512` files - Checksums
 
@@ -55,7 +55,7 @@ This creates a zip file at `lib/build/distributions/roux-0.2.1-bundle.zip` conta
 2. Log in with your Sonatype credentials
 3. Click "Staging Upload" in the left sidebar
 4. Select "Artifact Bundle" as upload mode
-5. Upload the bundle zip file: `lib/build/distributions/roux-0.2.1-bundle.zip`
+5. Upload the bundle zip file: `lib/build/distributions/roux-0.2.2-bundle.zip`
 6. Click "Upload Bundle"
 
 ### Verify and Release
@@ -72,7 +72,7 @@ This creates a zip file at `lib/build/distributions/roux-0.2.1-bundle.zip` conta
 Update the version in `lib/build.gradle.kts`:
 
 ```kotlin
-version = "0.2.1"  // Change this for new releases
+version = "0.2.2"  // Change this for new releases
 ```
 
 ## Checklist Before Publishing
