@@ -5,11 +5,13 @@ This example shows how to define your own capabilities and handlers for algebrai
 ## Define Your Capabilities
 
 ```java
+import com.cajunsystems.roux.data.Unit;
+
 // Define your domain-specific capabilities as a sealed interface
 public sealed interface LogCapability<R> extends Capability<R> {
-    record Info(String message) implements LogCapability<Void> {}
-    record Debug(String message) implements LogCapability<Void> {}
-    record Error(String message, Throwable error) implements LogCapability<Void> {}
+    record Info(String message) implements LogCapability<Unit> {}
+    record Debug(String message) implements LogCapability<Unit> {}
+    record Error(String message, Throwable error) implements LogCapability<Unit> {}
 }
 
 public sealed interface HttpCapability<R> extends Capability<R> {
@@ -22,52 +24,52 @@ public sealed interface HttpCapability<R> extends Capability<R> {
 
 ```java
 // Production handler - performs real side effects
-public class ProductionLogHandler implements CapabilityHandler<LogCapability<?>> {
+public class ProductionLogHandler {
     private final Logger logger = Logger.getLogger("App");
-    
-    @Override
-    @SuppressWarnings("unchecked")
-    public <R> R handle(LogCapability<?> capability) {
-        return switch (capability) {
-            case LogCapability.Info info -> {
-                logger.info(info.message());
-                yield (R) null;
-            }
-            case LogCapability.Debug debug -> {
-                logger.fine(debug.message());
-                yield (R) null;
-            }
-            case LogCapability.Error error -> {
-                logger.severe(error.message());
-                yield (R) null;
-            }
-        };
+
+    private final CapabilityHandler<Capability<?>> handler = CapabilityHandler.builder()
+        .on(LogCapability.Info.class, info -> {
+            logger.info(info.message());
+            return Unit.unit();
+        })
+        .on(LogCapability.Debug.class, debug -> {
+            logger.fine(debug.message());
+            return Unit.unit();
+        })
+        .on(LogCapability.Error.class, error -> {
+            logger.severe(error.message());
+            return Unit.unit();
+        })
+        .build();
+
+    public CapabilityHandler<Capability<?>> handler() {
+        return handler;
     }
 }
 
 // Test handler - captures logs for assertions
-public class TestLogHandler implements CapabilityHandler<LogCapability<?>> {
+public class TestLogHandler {
     private final List<String> logs = new ArrayList<>();
-    
-    @Override
-    @SuppressWarnings("unchecked")
-    public <R> R handle(LogCapability<?> capability) {
-        return switch (capability) {
-            case LogCapability.Info info -> {
-                logs.add("INFO: " + info.message());
-                yield (R) null;
-            }
-            case LogCapability.Debug debug -> {
-                logs.add("DEBUG: " + debug.message());
-                yield (R) null;
-            }
-            case LogCapability.Error error -> {
-                logs.add("ERROR: " + error.message());
-                yield (R) null;
-            }
-        };
+
+    private final CapabilityHandler<Capability<?>> handler = CapabilityHandler.builder()
+        .on(LogCapability.Info.class, info -> {
+            logs.add("INFO: " + info.message());
+            return Unit.unit();
+        })
+        .on(LogCapability.Debug.class, debug -> {
+            logs.add("DEBUG: " + debug.message());
+            return Unit.unit();
+        })
+        .on(LogCapability.Error.class, error -> {
+            logs.add("ERROR: " + error.message());
+            return Unit.unit();
+        })
+        .build();
+
+    public CapabilityHandler<Capability<?>> handler() {
+        return handler;
     }
-    
+
     public List<String> getLogs() {
         return Collections.unmodifiableList(logs);
     }
@@ -104,7 +106,7 @@ void testWorkflow() throws Throwable {
     
     // Compose handlers
     CapabilityHandler<Capability<?>> composedHandler = CapabilityHandler.compose(
-        logHandler.widen(),
+        logHandler.handler(),
         httpHandler.widen()
     );
     
@@ -207,6 +209,7 @@ Effect<Throwable, String> workflow = Effect.generate(ctx -> {
 ```
 
 **Benefits:**
+
 - All Effect operators work (map, flatMap, retry, timeout, zipPar, etc.)
 - Handler is implicit - provided at runtime
 - Clean, composable API

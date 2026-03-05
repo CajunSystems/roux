@@ -147,9 +147,11 @@ Effect<AppError, Data> transformed = loadData
 Write imperative-looking code that remains pure and testable using algebraic effects.
 
 ```java
+import com.cajunsystems.roux.data.Unit;
+
 // Define your capabilities
 sealed interface LogCapability<R> extends Capability<R> {
-    record Info(String message) implements LogCapability<Void> {}
+    record Info(String message) implements LogCapability<Unit> {}
 }
 
 sealed interface HttpCapability<R> extends Capability<R> {
@@ -182,6 +184,9 @@ Effect<Throwable, User> userEffect = new GetUser("123")
 
 User user = runtime.unsafeRunWithHandler(userEffect, handler);
 ```
+
+For side-effect-only capabilities (logging, metrics, notifications), prefer `Unit` over
+`Void` so handlers return `Unit.unit()` instead of `null`.
 
 **Learn more:** [Capabilities Guide](docs/CAPABILITIES.md) | [Capability Recipes](docs/CAPABILITY_RECIPES.md)
 
