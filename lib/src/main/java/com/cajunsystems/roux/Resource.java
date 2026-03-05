@@ -47,15 +47,14 @@ import java.util.function.Function;
  */
 public final class Resource<A> {
 
-    private final Effect<Throwable, A> acquire;
-    private final Function<A, Effect<Throwable, Unit>> release;
+    private record Scoped<A>(A value, Effect<Throwable, Unit> release) {}
+
+    private final Effect<Throwable, Scoped<A>> scoped;
 
     private Resource(
-            Effect<Throwable, A> acquire,
-            Function<A, Effect<Throwable, Unit>> release
+            Effect<Throwable, Scoped<A>> scoped
     ) {
-        this.acquire = acquire;
-        this.release = release;
+        this.scoped = scoped;
     }
 
     // -----------------------------------------------------------------------
@@ -74,7 +73,9 @@ public final class Resource<A> {
             Effect<E, A> acquire,
             Function<A, Effect<Throwable, Unit>> release
     ) {
-        return new Resource<>(acquire.widen(), release);
+        return new Resource<>(
+                acquire.widen().map(value -> new Scoped<>(value, release.apply(value)))
+        );
     }
 
     /**
@@ -106,11 +107,11 @@ public final class Resource<A> {
     public <E extends Throwable, B> Effect<Throwable, B> use(
             Function<A, Effect<E, B>> f
     ) {
-        return acquire.flatMap(resource ->
+        return scoped.flatMap(scopedResource ->
             // Capture success/failure as Either, then always release,
             // then re-emit the original outcome.
-            f.apply(resource).widen().<Either<Throwable, B>>attempt().flatMap(result ->
-                release.apply(resource)
+            f.apply(scopedResource.value()).widen().<Either<Throwable, B>>attempt().flatMap(result ->
+                scopedResource.release()
                         .catchAll(__ -> Effect.<Throwable>unit())
                         .flatMap(__ -> result.fold(Effect::fail, Effect::succeed))
             )
@@ -129,25 +130,21 @@ public final class Resource<A> {
      * @param f function that creates the second resource from the first
      */
     public <B> Resource<B> flatMap(Function<A, Resource<B>> f) {
-        return new Resource<>(
-                acquire.flatMap(a -> f.apply(a).acquire),
-                b -> f.apply(null).release.apply(b)   // placeholder — see below
+        return new Resource<B>(
+                scoped.flatMap(outer ->
+                        f.apply(outer.value()).scoped
+                                .map(inner -> new Scoped<B>(
+                                        inner.value(),
+                                        Resource.ensuring(inner.release(), outer.release())
+                                ))
+                                .catchAll(innerAcquireError ->
+                                        outer.release()
+                                                .catchAll(__ -> Effect.<Throwable>unit())
+                                                .flatMap(__ -> Effect.<Throwable, Scoped<B>>fail(innerAcquireError))
+                                )
+                )
         );
     }
-
-    // Note: the flatMap above is intentionally simplified. A full stack-safe
-    // implementation would require the outer resource value to be available at
-    // release time, which needs a more complex representation. For most use
-    // cases, nested use() calls compose correctly:
-    //
-    //   outerResource.use(outer ->
-    //       innerResource(outer).use(inner ->
-    //           Effect.succeed(use(outer, inner))
-    //       )
-    //   );
-    //
-    // The flatMap here is provided as a convenience for resources that don't
-    // need the outer value during release.
 
     // -----------------------------------------------------------------------
     // Effect.ensuring convenience (static)

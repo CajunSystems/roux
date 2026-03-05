@@ -5,6 +5,8 @@ import com.cajunsystems.roux.runtime.DefaultEffectRuntime;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -339,6 +341,54 @@ class ResourceTest {
     // -----------------------------------------------------------------------
     // Resource value is accessible during release
     // -----------------------------------------------------------------------
+
+    @Test
+    void flatMap_releasesInnerThenOuter_andOuterReleaseUsesAcquiredValue() throws Throwable {
+        List<String> releaseOrder = new ArrayList<>();
+
+        Resource<String> outer = Resource.make(
+                Effect.succeed("outer-42"),
+                outerValue -> Effect.runnable(() -> releaseOrder.add("outer:" + outerValue))
+        );
+
+        Resource<String> composed = outer.flatMap(outerValue ->
+                Resource.make(
+                        Effect.succeed("inner-for-" + outerValue),
+                        innerValue -> Effect.runnable(() -> releaseOrder.add("inner:" + innerValue))
+                )
+        );
+
+        String result = runtime.unsafeRun(composed.use(Effect::succeed));
+
+        assertEquals("inner-for-outer-42", result);
+        assertEquals(List.of(
+                "inner:inner-for-outer-42",
+                "outer:outer-42"
+        ), releaseOrder);
+    }
+
+    @Test
+    void flatMap_releasesOuter_whenInnerAcquireFails() {
+        AtomicReference<String> releasedOuterValue = new AtomicReference<>();
+
+        Resource<String> outer = Resource.make(
+                Effect.succeed("outer-resource"),
+                value -> Effect.runnable(() -> releasedOuterValue.set(value))
+        );
+
+        Resource<String> composed = outer.flatMap(__ ->
+                Resource.make(
+                        Effect.<Throwable, String>fail(new RuntimeException("inner acquire failed")),
+                        ignored -> Effect.unit()
+                )
+        );
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> runtime.unsafeRun(composed.use(Effect::succeed)));
+
+        assertEquals("inner acquire failed", thrown.getMessage());
+        assertEquals("outer-resource", releasedOuterValue.get());
+    }
 
     @Test
     void release_receivesAcquiredValue() throws Throwable {
