@@ -80,7 +80,7 @@ EffectAssertions.assertThat(effect)
 
 ---
 
-### Phase 5: TestRuntime
+### Phase 5: TestRuntime ✓ Complete
 
 **Goal:** A test-specific `EffectRuntime` that gives deterministic, controllable execution — manual clock advancement for testing time-dependent effects, and fiber state inspection.
 

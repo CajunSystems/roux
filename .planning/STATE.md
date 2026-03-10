@@ -2,9 +2,9 @@
 
 ## Current Position
 - **Milestone**: 1 — Effect Laws & Test Utilities
-- **Phase**: 5 — TestRuntime
+- **Phase**: 6 — Capability Test Doubles
 - **Plan**: Not yet planned
-- **Status**: Phase 4 complete — EffectAssertions API built and verified; ready to plan Phase 5
+- **Status**: Phase 5 complete — TestRuntime built and verified; ready to plan Phase 6
 
 ## Recent Decisions
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
@@ -25,3 +25,5 @@ None
 - Test utilities (Phases 4-6) live in test scope only — no production footprint
 - Sealed interfaces cannot be local classes in Java — must be at class/top level (learned in Phase 4)
 - Uncommitted changes to `docs/CAPABILITIES.md` and `CapabilityHandler.java` still present — not blocking
+- Sleep is now a first-class Effect primitive (not a Suspend thunk) — enables runtime interception
+- TestRuntime.performSleep override uses virtual clock; Sleep record has one type param E (not two)
