@@ -137,7 +137,7 @@ handler.verify(FetchUser.class).neverCalled();
 
 ---
 
-### Phase 7: Phantom Types + HandlerEnv
+### Phase 7: Phantom Types + HandlerEnv ✓ Complete
 
 **Goal:** Establish the type-level foundation: `Empty` and `With<A, B>` phantom interfaces, plus `HandlerEnv<R>` — a typed wrapper around `CapabilityHandler` that tracks which capabilities it covers at compile time.
 

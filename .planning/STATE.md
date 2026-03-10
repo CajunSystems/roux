@@ -2,9 +2,9 @@
 
 ## Current Position
 - **Milestone**: 2 — Type-Safe Layer System
-- **Phase**: 7 — Phantom Types + HandlerEnv
+- **Phase**: 8 — EffectWithEnv
 - **Plan**: Not yet planned
-- **Status**: Milestone 1 complete; Milestone 2 defined; ready to plan Phase 7
+- **Status**: Phase 7 complete — phantom types and HandlerEnv built and verified; ready to plan Phase 8
 
 ## Recent Decisions
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
@@ -18,6 +18,7 @@
 - Milestone 2: `EffectWithEnv<R,E,A>` is a thin wrapper — `Effect<E,A>` production API unchanged
 - Milestone 2: Phantom types `Empty`/`With<A,B>` are never instantiated — compile-time only
 - Milestone 2: `HandlerEnv.and()` returns `HandlerEnv<With<R, S>>` — right-nested by convention
+- `HandlerEnv.of()` phantom type is C (the capability family), not R (the return type)
 
 ## Open Issues
 None
@@ -33,3 +34,6 @@ None
 - CapabilityVerifier uses JUnit assertions internally (test scope only — no production impact)
 - Phase 10 (Layer composition) has HIGH research flag — andProvide type threading is most complex generics challenge
 - Phase 11 (F-bounded Builder) has MEDIUM flag — existing call sites may need updates after on() signature change
+- HandlerEnv, Empty, With live in com.cajunsystems.roux.capability package
+- HandlerEnv.toHandler() returns CapabilityHandler<Capability<?>> for use with unsafeRunWithHandler
+- HandlerEnv.empty() uses anonymous inner class (not lambda) — Java cannot infer generic type for lambda assigned to CapabilityHandler<Capability<?>>
