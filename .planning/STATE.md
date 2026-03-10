@@ -2,9 +2,9 @@
 
 ## Current Position
 - **Milestone**: 2 — Type-Safe Layer System
-- **Phase**: 8 — EffectWithEnv
+- **Phase**: 9 — Layer Core
 - **Plan**: Not yet planned
-- **Status**: Phase 7 complete — phantom types and HandlerEnv built and verified; ready to plan Phase 8
+- **Status**: Phase 8 complete — EffectWithEnv built and verified; ready to plan Phase 9
 
 ## Recent Decisions
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
@@ -19,6 +19,8 @@
 - Milestone 2: Phantom types `Empty`/`With<A,B>` are never instantiated — compile-time only
 - Milestone 2: `HandlerEnv.and()` returns `HandlerEnv<With<R, S>>` — right-nested by convention
 - `HandlerEnv.of()` phantom type is C (the capability family), not R (the return type)
+- `EffectWithEnv.of()` R is phantom — caller declares it explicitly; Java cannot infer phantom types
+- `EffectWithEnv.flatMap()` accesses private `.effect` field of other instance — legal in Java (per-class not per-instance)
 
 ## Open Issues
 None
@@ -37,3 +39,4 @@ None
 - HandlerEnv, Empty, With live in com.cajunsystems.roux.capability package
 - HandlerEnv.toHandler() returns CapabilityHandler<Capability<?>> for use with unsafeRunWithHandler
 - HandlerEnv.empty() uses anonymous inner class (not lambda) — Java cannot infer generic type for lambda assigned to CapabilityHandler<Capability<?>>
+- EffectWithEnv lives in com.cajunsystems.roux alongside Effect

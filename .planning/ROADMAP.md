@@ -150,7 +150,7 @@ handler.verify(FetchUser.class).neverCalled();
 
 ---
 
-### Phase 8: EffectWithEnv
+### Phase 8: EffectWithEnv ✓ Complete
 
 **Goal:** `EffectWithEnv<R, E, A>` — a thin wrapper around `Effect<E, A>` that statically declares which capability environment `R` the effect needs.
 
