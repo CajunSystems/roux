@@ -153,4 +153,29 @@ public interface Layer<RIn, E extends Throwable, ROut> {
         return env -> widenError(this.build(env))
                 .flatMap(h1 -> widenError(other.build(env)).map(h2 -> h1.and(h2)));
     }
+
+    /**
+     * Vertical composition: this layer's output feeds the next layer's input.
+     * Both outputs are retained.
+     *
+     * <pre>{@code
+     * // configLayer : Empty     → ConfigOps
+     * // emailLayer  : ConfigOps → EmailOps
+     * // combined    : Empty     → With<ConfigOps, EmailOps>
+     * Layer<Empty, Throwable, With<ConfigOps, EmailOps>> combined =
+     *     configLayer.andProvide(emailLayer);
+     * }</pre>
+     *
+     * <p>The combined layer's error type is {@code Throwable} — both individual error
+     * types are widened to their common supertype.
+     *
+     * @param next the downstream layer that depends on this layer's output
+     * @param <E2> the error type of the downstream layer
+     * @param <S>  the capability type produced by the downstream layer
+     * @return a layer that builds both in sequence, retaining both environments
+     */
+    default <E2 extends Throwable, S> Layer<RIn, Throwable, With<ROut, S>> andProvide(Layer<ROut, E2, S> next) {
+        return env -> widenError(this.build(env))
+                .flatMap(h1 -> widenError(next.build(h1)).map(h2 -> h1.and(h2)));
+    }
 }
