@@ -12,6 +12,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class EffectAssertionsTest {
 
+    // Shared capability domain for handler tests
+    sealed interface Greet<R> extends Capability<R> {
+        record Hello(String name) implements Greet<String> {}
+    }
+
+
     // -----------------------------------------------------------------------
     // succeeds()
     // -----------------------------------------------------------------------
@@ -173,9 +179,6 @@ class EffectAssertionsTest {
 
     @Test
     void assertThatWithHandler_executesCapabilityEffect() {
-        sealed interface Greet<R> extends Capability<R> {
-            record Hello(String name) implements Greet<String> {}
-        }
         CapabilityHandler<Capability<?>> handler = CapabilityHandler.builder()
                 .on(Greet.Hello.class, c -> "Hello, " + c.name())
                 .build();
