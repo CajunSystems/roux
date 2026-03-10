@@ -88,16 +88,21 @@ Effect<Throwable, Dashboard> dashboard = new GetUser("123")
     .zipPar(new GetOrders("123").toEffect(), Dashboard::new);
 ```
 
-### 6. Building Handlers (0.2.0+)
+### 6. Building Handlers (0.3.0+)
 
-Use the fluent `CapabilityHandler.builder()` for clean, lambda-friendly handler definitions:
+Use `CapabilityHandler.forType(...)` to build type-safe, lambda-friendly handlers. Pass the sealed capability family class — lambda parameters are correctly typed without any hints:
 
 ```java
 import com.cajunsystems.roux.data.Unit;
 
-CapabilityHandler<Capability<?>> handler = CapabilityHandler.builder()
-    .on(MyCapability.Fetch.class, fetch -> httpClient.get(fetch.url()))
-    .on(MyCapability.Log.class,   log   -> {
+sealed interface AppCapability<R> extends Capability<R> {
+    record Fetch(String url)    implements AppCapability<String> {}
+    record Log(String message)  implements AppCapability<Unit> {}
+}
+
+var handler = CapabilityHandler.forType(AppCapability.class)
+    .on(AppCapability.Fetch.class, fetch -> httpClient.get(fetch.url()))
+    .on(AppCapability.Log.class,   log   -> {
         logger.info(log.message());
         return Unit.unit();
     })
@@ -114,33 +119,7 @@ CapabilityHandler<Capability<?>> combined = CapabilityHandler.compose(
 );
 ```
 
-### 7. Typed Capability Handlers (0.2.2+)
-
-For better type inference when building handlers, use `CapabilityHandler.forType(...)`:
-
-```java
-import com.cajunsystems.roux.capability.Capability;
-import com.cajunsystems.roux.capability.CapabilityHandler;
-
-sealed interface AppCapability<R> extends Capability<R> {
-    record Log(String msg) implements AppCapability<Unit> {}
-    record GetValue(String key) implements AppCapability<String> {}
-}
-
-var handler = CapabilityHandler.forType(AppCapability.class)
-    .on(AppCapability.Log.class,      c -> { log.add(c.msg()); return Unit.unit(); })
-    .on(AppCapability.GetValue.class, c -> "value-of-" + c.key())
-    .build();
-
-Effect<Throwable, String> effect = new AppCapability.GetValue("name").toEffect();
-String value = runtime.unsafeRunWithHandler(effect, handler);
-```
-
-**Why use `forType(...)` instead of `builder()`?**
-
-- **Perfect type inference** — lambda parameters (`c`) are correctly typed without hints
-- **Zero overhead** — same performance as `builder()`, just better ergonomics
-- **Cleaner code** — no need for explicit type annotations in lambdas
+> **Note:** `CapabilityHandler.builder()` is deprecated since v0.3.0. Use `forType(...)` for single-family handlers. For environments covering multiple capability families, use `HandlerEnv.of()` per family and combine with `.and()` — see section 8 and [TYPED_EFFECTS.md](TYPED_EFFECTS.md).
 
 ### 8. Type-Safe Handler Environments (0.3.0+)
 

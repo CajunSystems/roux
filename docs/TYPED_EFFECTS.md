@@ -369,4 +369,4 @@ Roux's approach is more explicit at composition sites but requires no language e
 
 The F-bound `C extends Capability<R>` at `HandlerEnv.of()` requires a single `R` across the capability family registered in one call. This encourages grouping capabilities with a consistent return type (a sealed interface where all variants share the same `Capability<R>` parent).
 
-For a mixed-result group, use `CapabilityHandler.builder().on(...)` to register each subtype individually and wrap with `HandlerEnv.fromHandler()`.
+For a mixed-result group, use `CapabilityHandler.forType(...)` to register each subtype individually and wrap with `HandlerEnv.fromHandler()`.

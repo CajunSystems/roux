@@ -70,7 +70,7 @@ public final class HandlerEnv<R> {
             Class<C> type,
             ThrowingFunction<C, R> handler
     ) {
-        return new HandlerEnv<>(CapabilityHandler.builder().on(type, handler).build());
+        return new HandlerEnv<>(CapabilityHandler.forType(type).on(type, handler).build());
     }
 
     /**

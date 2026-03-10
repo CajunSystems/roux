@@ -91,16 +91,17 @@ public interface CapabilityHandler<C extends Capability<?>> {
     // -----------------------------------------------------------------------
 
     /**
-     * Returns a fluent builder for constructing a capability handler that
-     * dispatches on exact capability types without relying on exceptions.
+     * Returns a fluent builder for constructing a capability handler.
      *
-     * <pre>{@code
-     * CapabilityHandler<Capability<?>> handler = CapabilityHandler.builder()
-     *     .on(MyCapability.Fetch.class, fetch -> httpClient.get(fetch.url()))
-     *     .on(MyCapability.Log.class,   log   -> { logger.info(log.message()); return null; })
-     *     .build();
-     * }</pre>
+     * @deprecated Use {@link #forType(Class)} instead — it provides the same
+     *             functionality with improved lambda type inference and is the
+     *             recommended API from v0.3.0 onwards.
+     *             For environments covering multiple capability families, use
+     *             {@link com.cajunsystems.roux.capability.HandlerEnv#of} per family
+     *             and combine with {@link com.cajunsystems.roux.capability.HandlerEnv#and}.
+     * @see #forType(Class)
      */
+    @Deprecated(since = "0.3.0", forRemoval = false)
     static Builder<Capability<?>> builder() {
         return new Builder<>();
     }
