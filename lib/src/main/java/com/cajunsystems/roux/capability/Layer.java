@@ -122,4 +122,13 @@ public interface Layer<RIn, E extends Throwable, ROut> {
             return result;
         });
     }
+
+    // -----------------------------------------------------------------------
+    // Composition operators
+    // -----------------------------------------------------------------------
+
+    @SuppressWarnings("unchecked")
+    private static <Ex extends Throwable, A> Effect<Throwable, A> widenError(Effect<Ex, A> effect) {
+        return (Effect<Throwable, A>) effect;
+    }
 }
