@@ -2,9 +2,9 @@
 
 ## Current Position
 - **Milestone**: 1 — Effect Laws & Test Utilities
-- **Phase**: 2 — Functor & Monad Laws
+- **Phase**: 3 — Error Channel & Capability Laws
 - **Plan**: Not yet planned
-- **Status**: Phase 1 complete, ready to plan Phase 2
+- **Status**: Phase 2 complete, ready to plan Phase 3
 
 ## Recent Decisions
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
