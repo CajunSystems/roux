@@ -184,7 +184,7 @@ handler.verify(FetchUser.class).neverCalled();
 
 ---
 
-### Phase 11: F-Bounded Builder + Integration Tests
+### Phase 11: F-Bounded Builder + Integration Tests ✓ Complete
 
 **Goal:** Upgrade `CapabilityHandler.Builder.on()` to F-bounded return type and write end-to-end integration tests for the full Layer → Env → EffectWithEnv workflow.
 

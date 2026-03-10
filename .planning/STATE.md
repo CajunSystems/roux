@@ -1,12 +1,14 @@
 # State
 
 ## Current Position
-- **Milestone**: 2 — Type-Safe Layer System
-- **Phase**: 10 — Layer Composition ✓ Complete
-- **Plan**: 10-1 complete
-- **Status**: Phase 10 complete — Layer composition operators added and verified; ready for Phase 11
+- **Milestone**: 2 — Type-Safe Layer System ✓ Complete
+- **Phase**: 11 — F-Bounded Builder + Integration Tests ✓ Complete
+- **Plan**: 11-1 complete
+- **Status**: All phases complete — ready for milestone completion
 
 ## Recent Decisions
+- `Builder.on()` intersection bound `C extends F & Capability<R>` — not valid Java (JLS §4.4 forbids additional bounds when first bound is a type variable); existing `C extends F` already enforces the F-bound transitively via `Builder<F extends Capability<?>>`
+- `forType(Class<F>)` static factory added alongside `builder()` — improved lambda type inference when capability family is known
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
 - Test utilities in same artifact under test scope — no separate artifact complexity
 - No new production dependencies — zero-dep production code preserved
