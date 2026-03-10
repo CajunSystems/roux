@@ -2,9 +2,9 @@
 
 ## Current Position
 - **Milestone**: 1 — Effect Laws & Test Utilities
-- **Phase**: 4 — Fluent Effect Assertions
+- **Phase**: 5 — TestRuntime
 - **Plan**: Not yet planned
-- **Status**: Phase 3 complete — all 11 algebraic laws verified; ready to plan Phase 4
+- **Status**: Phase 4 complete — EffectAssertions API built and verified; ready to plan Phase 5
 
 ## Recent Decisions
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
@@ -23,4 +23,5 @@ None
 - Capability handler laws test `handle()` dispatch directly (no EffectRuntime needed)
 - Law tests package: `com.cajunsystems.roux.laws` — established and populated
 - Test utilities (Phases 4-6) live in test scope only — no production footprint
+- Sealed interfaces cannot be local classes in Java — must be at class/top level (learned in Phase 4)
 - Uncommitted changes to `docs/CAPABILITIES.md` and `CapabilityHandler.java` still present — not blocking
