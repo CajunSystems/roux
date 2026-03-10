@@ -112,8 +112,11 @@ public interface CapabilityHandler<C extends Capability<?>> {
 
         /**
          * Register a handler for a specific capability type using a lambda-friendly
-         * {@link ThrowingFunction}. The return value is cast to the caller's expected
-         * type at runtime.
+         * {@link ThrowingFunction}.
+         *
+         * <p>The F-bound {@code C extends Capability<R>} ties the handler's return type
+         * {@code R} to the return type declared by the capability, so the compiler can
+         * verify that the lambda returns the correct type without any wildcards.
          *
          * <pre>{@code
          * CapabilityHandler.builder()
@@ -123,17 +126,19 @@ public interface CapabilityHandler<C extends Capability<?>> {
          * }</pre>
          *
          * @param type    exact capability class (not a supertype)
-         * @param handler handler lambda for that specific type
+         * @param handler handler lambda whose return type matches {@code C}'s declared result
+         * @param <R>     the capability's result type, inferred from {@code C}
+         * @param <C>     the concrete capability type
          */
         @SuppressWarnings("unchecked")
-        public <C extends Capability<?>> Builder on(
+        public <R, C extends Capability<R>> Builder on(
                 Class<C> type,
-                ThrowingFunction<C, ?> handler
+                ThrowingFunction<C, R> handler
         ) {
             handlers.put(type, new CapabilityHandler<C>() {
                 @Override
-                public <R> R handle(C capability) throws Exception {
-                    return (R) handler.apply(capability);
+                public <Res> Res handle(C capability) throws Exception {
+                    return (Res) handler.apply(capability);
                 }
             });
             return this;

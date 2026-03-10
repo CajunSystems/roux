@@ -74,14 +74,18 @@ public interface HandlerEnv<R> {
      * subtypes (e.g. records inside a sealed interface) are resolved via the existing
      * {@link CapabilityHandler.Builder} interface-walk logic.
      *
+     * <p>The F-bound {@code C extends Capability<R>} ensures the handler lambda's return
+     * type matches the result type declared by the capability — no wildcards required.
+     *
      * @param type    the root capability interface
-     * @param handler lambda that handles any subtype of {@code C}
-     * @param <C>     the capability type
+     * @param handler lambda whose return type matches the capability's declared result type
+     * @param <R>     the capability's result type, inferred from {@code C}
+     * @param <C>     the concrete capability type
      * @return a typed environment providing {@code C}
      */
-    static <C extends Capability<?>> HandlerEnv<C> of(
+    static <R, C extends Capability<R>> HandlerEnv<C> of(
             Class<C> type,
-            ThrowingFunction<C, ?> handler
+            ThrowingFunction<C, R> handler
     ) {
         CapabilityHandler<Capability<?>> h = CapabilityHandler.builder()
                 .on(type, handler)

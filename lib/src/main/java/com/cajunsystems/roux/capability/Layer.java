@@ -151,6 +151,9 @@ public interface Layer<RIn, E extends Throwable, ROut> {
     /**
      * Create a pure layer with no dependencies that builds a handler from a simple lambda.
      *
+     * <p>The F-bound {@code C extends Capability<R>} ties the handler's return type to the
+     * one declared by the capability, eliminating wildcards from the factory signature.
+     *
      * <pre>{@code
      * Layer<Empty, RuntimeException, DbOps> dbLayer = Layer.succeed(DbOps.class, cap ->
      *     switch (cap) {
@@ -161,13 +164,14 @@ public interface Layer<RIn, E extends Throwable, ROut> {
      * }</pre>
      *
      * @param type    the root capability interface
-     * @param handler lambda that handles all subtypes of {@code C}
+     * @param handler lambda whose return type matches the capability's declared result type
+     * @param <R>     the capability's result type, inferred from {@code C}
      * @param <C>     the capability type this layer provides
      * @return a layer with no input dependencies that provides {@code C}
      */
-    static <C extends Capability<?>> Layer<Empty, RuntimeException, C> succeed(
+    static <R, C extends Capability<R>> Layer<Empty, RuntimeException, C> succeed(
             Class<C> type,
-            ThrowingFunction<C, ?> handler
+            ThrowingFunction<C, R> handler
     ) {
         HandlerEnv<C> env = HandlerEnv.of(type, handler);
         return __ -> Effect.succeed(env);
@@ -178,8 +182,9 @@ public interface Layer<RIn, E extends Throwable, ROut> {
      * environment.  Use this when handler construction itself requires performing
      * capabilities or other effectful initialisation.
      *
-     * <p>The {@code handlerFactory} receives the input {@link HandlerEnv} and returns an
-     * effect that produces the handler function for {@code C}.
+     * <p>The F-bound {@code C extends Capability<R>} ensures the produced handler function
+     * is typed to return {@code R} — the exact return type declared by {@code C} — with no
+     * wildcards in the factory signature.
      *
      * <pre>{@code
      * Layer<ConfigOps, Exception, EmailOps> emailLayer = Layer.fromEffect(
@@ -195,14 +200,15 @@ public interface Layer<RIn, E extends Throwable, ROut> {
      *
      * @param type           the root capability interface
      * @param handlerFactory function from input env to an effect producing the handler function
+     * @param <R>            the capability's result type, inferred from {@code C}
      * @param <RIn>          what the layer requires
      * @param <E>            error type during construction
      * @param <C>            the capability type this layer provides
      * @return a layer that builds {@code C} handlers from {@code RIn}
      */
-    static <RIn, E extends Throwable, C extends Capability<?>> Layer<RIn, E, C> fromEffect(
+    static <R, RIn, E extends Throwable, C extends Capability<R>> Layer<RIn, E, C> fromEffect(
             Class<C> type,
-            Function<HandlerEnv<RIn>, Effect<E, ThrowingFunction<C, ?>>> handlerFactory
+            Function<HandlerEnv<RIn>, Effect<E, ThrowingFunction<C, R>>> handlerFactory
     ) {
         return input -> handlerFactory.apply(input)
                 .map(handler -> HandlerEnv.of(type, handler));
