@@ -2,9 +2,9 @@
 
 ## Current Position
 - **Milestone**: 1 — Effect Laws & Test Utilities
-- **Phase**: 3 — Error Channel & Capability Laws
+- **Phase**: 4 — Fluent Effect Assertions
 - **Plan**: Not yet planned
-- **Status**: Phase 2 complete, ready to plan Phase 3
+- **Status**: Phase 3 complete — all 11 algebraic laws verified; ready to plan Phase 4
 
 ## Recent Decisions
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
@@ -20,6 +20,7 @@
 None
 
 ## Notes
-- Uncommitted changes exist: `docs/CAPABILITIES.md` and `CapabilityHandler.java` (adds `forType()`) — review before planning Phase 3 (Capability Laws)
-- Law tests will live in `com.cajunsystems.roux.laws` package
+- Capability handler laws test `handle()` dispatch directly (no EffectRuntime needed)
+- Law tests package: `com.cajunsystems.roux.laws` — established and populated
 - Test utilities (Phases 4-6) live in test scope only — no production footprint
+- Uncommitted changes to `docs/CAPABILITIES.md` and `CapabilityHandler.java` still present — not blocking
