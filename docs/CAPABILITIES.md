@@ -114,6 +114,34 @@ CapabilityHandler<Capability<?>> combined = CapabilityHandler.compose(
 );
 ```
 
+### 7. Typed Capability Handlers (0.2.2+)
+
+For better type inference when building handlers, use `CapabilityHandler.forType(...)`:
+
+```java
+import com.cajunsystems.roux.capability.Capability;
+import com.cajunsystems.roux.capability.CapabilityHandler;
+
+sealed interface AppCapability<R> extends Capability<R> {
+    record Log(String msg) implements AppCapability<Unit> {}
+    record GetValue(String key) implements AppCapability<String> {}
+}
+
+var handler = CapabilityHandler.forType(AppCapability.class)
+    .on(AppCapability.Log.class,      c -> { log.add(c.msg()); return Unit.unit(); })
+    .on(AppCapability.GetValue.class, c -> "value-of-" + c.key())
+    .build();
+
+Effect<Throwable, String> effect = new AppCapability.GetValue("name").toEffect();
+String value = runtime.unsafeRunWithHandler(effect, handler);
+```
+
+**Why use `forType(...)` instead of `builder()`?**
+
+- **Perfect type inference** — lambda parameters (`c`) are correctly typed without hints
+- **Zero overhead** — same performance as `builder()`, just better ergonomics
+- **Cleaner code** — no need for explicit type annotations in lambdas
+
 ## Why This Design?
 
 1. **Minimal & Unopinionated**: Roux provides only the infrastructure. You define your own capabilities.
