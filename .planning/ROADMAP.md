@@ -126,3 +126,73 @@ handler.verify(FetchUser.class).neverCalled();
 - Separate `roux-test` artifact — all test utilities in same library, test scope
 - Concurrency law tests — Fork/Race/Scoped laws deferred
 - Backwards compat shims — Java 21+ only
+
+---
+
+## Milestone 2: Type-Safe Layer System
+
+**Goal:** Extend the capability system with a ZIO-style layer mechanism that gives compile-time verification that every capability an effect uses has a handler — no runtime `UnsupportedOperationException` from a forgotten handler; the program won't compile.
+
+**Success:** Developers declare `TypedEffect<R, E, A>` encoding which capabilities are needed, compose `HandlerEnv<R>` environments the compiler checks against, and wire dependencies through `Layer<RIn, E, ROut>` recipes.
+
+---
+
+### Phase 7: Phantom Types + HandlerEnv
+
+**Goal:** Establish the type-level foundation: `Empty` and `With<A, B>` phantom interfaces, plus `HandlerEnv<R>` — a typed wrapper around `CapabilityHandler` that tracks which capabilities it covers at compile time.
+
+**Deliverables:**
+- `Empty` — phantom marker interface (base case, no capabilities)
+- `With<A, B>` — phantom marker interface (both A and B present)
+- `HandlerEnv<R>` — `.of()` (F-bounded), `.and()`, `.fromHandler()`, `.empty()`, `.toHandler()`
+
+**Research flags:** Low
+
+---
+
+### Phase 8: TypedEffect
+
+**Goal:** `TypedEffect<R, E, A>` — a thin wrapper around `Effect<E, A>` that statically declares which capability environment `R` the effect needs.
+
+**Deliverables:**
+- `TypedEffect<R, E, A>` — `.of()`, `.pure()`, `.map()`, `.flatMap()`, `.run(HandlerEnv<R>, EffectRuntime)`
+
+**Research flags:** Low
+
+---
+
+### Phase 9: Layer Core
+
+**Goal:** `Layer<RIn, E, ROut>` — recipe that builds a `HandlerEnv<ROut>` from a `HandlerEnv<RIn>`, possibly performing effects during construction.
+
+**Deliverables:**
+- `Layer<RIn, E, ROut>` — `.succeed()`, `.fromEffect()`, `.build()`
+
+**Research flags:** Medium
+
+---
+
+### Phase 10: Layer Composition
+
+**Goal:** Horizontal (`and`) and vertical (`andProvide`) composition operators.
+
+**Deliverables:**
+- `Layer.and()` — same input, merged output `With<ROut, S>`
+- `Layer.andProvide()` — this output feeds next input; both outputs retained
+
+**Research flags:** High
+
+---
+
+### Phase 11: F-Bounded Builder + Integration Tests
+
+**Goal:** Upgrade `CapabilityHandler.Builder.on()` to F-bounded return type and write end-to-end integration tests for the full Layer → Env → TypedEffect workflow.
+
+**Deliverables:**
+- `CapabilityHandler.Builder.on()` upgraded to `<R, C extends F & Capability<R>>`
+- `LayerIntegrationTest` — full workflow test
+- Regression: all existing tests still pass
+
+**Research flags:** Medium
+
+---

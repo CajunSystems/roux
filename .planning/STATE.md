@@ -1,10 +1,10 @@
 # State
 
 ## Current Position
-- **Milestone**: 1 — Effect Laws & Test Utilities
-- **Phase**: 6 — Capability Test Doubles
-- **Plan**: 06-1 complete
-- **Status**: Milestone 1 complete — all 6 phases done; Effect laws verified, test utilities shipped
+- **Milestone**: 2 — Type-Safe Layer System
+- **Phase**: 7 — Phantom Types + HandlerEnv
+- **Plan**: Not yet planned
+- **Status**: Milestone 1 complete; Milestone 2 defined; ready to plan Phase 7
 
 ## Recent Decisions
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
@@ -15,6 +15,9 @@
 - Effect equivalence: run both effects and compare outcomes (not structural equality)
 - `EffectLawSupport` is a static utility class (not abstract base) — avoids inheritance coupling
 - Failure equivalence compares exception class + message (not reference) — exceptions lack meaningful equals()
+- Milestone 2: `TypedEffect<R,E,A>` is a thin wrapper — `Effect<E,A>` production API unchanged
+- Milestone 2: Phantom types `Empty`/`With<A,B>` are never instantiated — compile-time only
+- Milestone 2: `HandlerEnv.and()` returns `HandlerEnv<With<R, S>>` — right-nested by convention
 
 ## Open Issues
 None
@@ -24,8 +27,9 @@ None
 - Law tests package: `com.cajunsystems.roux.laws` — established and populated
 - Test utilities (Phases 4-6) live in test scope only — no production footprint
 - Sealed interfaces cannot be local classes in Java — must be at class/top level (learned in Phase 4)
-- Uncommitted changes to `docs/CAPABILITIES.md` and `CapabilityHandler.java` still present — not blocking
 - Sleep is now a first-class Effect primitive (not a Suspend thunk) — enables runtime interception
 - TestRuntime.performSleep override uses virtual clock; Sleep record has one type param E (not two)
 - TestCapabilityHandler implements CapabilityHandler<Capability<?>> directly — no .widen() needed at call sites
 - CapabilityVerifier uses JUnit assertions internally (test scope only — no production impact)
+- Phase 10 (Layer composition) has HIGH research flag — andProvide type threading is most complex generics challenge
+- Phase 11 (F-bounded Builder) has MEDIUM flag — existing call sites may need updates after on() signature change
