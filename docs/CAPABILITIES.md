@@ -114,6 +114,80 @@ CapabilityHandler<Capability<?>> combined = CapabilityHandler.compose(
 );
 ```
 
+### 7. Typed Capability Handlers (0.2.2+)
+
+For better type inference when building handlers, use `CapabilityHandler.forType(...)`:
+
+```java
+import com.cajunsystems.roux.capability.Capability;
+import com.cajunsystems.roux.capability.CapabilityHandler;
+
+sealed interface AppCapability<R> extends Capability<R> {
+    record Log(String msg) implements AppCapability<Unit> {}
+    record GetValue(String key) implements AppCapability<String> {}
+}
+
+var handler = CapabilityHandler.forType(AppCapability.class)
+    .on(AppCapability.Log.class,      c -> { log.add(c.msg()); return Unit.unit(); })
+    .on(AppCapability.GetValue.class, c -> "value-of-" + c.key())
+    .build();
+
+Effect<Throwable, String> effect = new AppCapability.GetValue("name").toEffect();
+String value = runtime.unsafeRunWithHandler(effect, handler);
+```
+
+**Why use `forType(...)` instead of `builder()`?**
+
+- **Perfect type inference** — lambda parameters (`c`) are correctly typed without hints
+- **Zero overhead** — same performance as `builder()`, just better ergonomics
+- **Cleaner code** — no need for explicit type annotations in lambdas
+
+### 8. Type-Safe Handler Environments (0.3.0+)
+
+`HandlerEnv<R>` wraps a `CapabilityHandler` and tracks, at compile time, which capabilities it covers via a phantom type parameter `R`. This eliminates the runtime `UnsupportedOperationException` you'd get from a forgotten handler — the program won't compile instead.
+
+```java
+// Phantom types — never instantiated, compile-time only
+interface Empty {}                    // no capabilities
+interface With<A, B> {}              // both A and B present
+
+// Create a typed environment for one capability family
+HandlerEnv<StoreOps> storeEnv = HandlerEnv.of(StoreOps.class, cap -> switch (cap) {
+    case StoreOps.Get g  -> store.getOrDefault(g.key(), "missing");
+    case StoreOps.Put p  -> { store.put(p.key(), p.value()); yield "ok"; }
+});
+
+// Combine environments — phantom type tracks both
+HandlerEnv<With<StoreOps, LogOps>> fullEnv = storeEnv.and(logEnv);
+```
+
+Use `EffectWithEnv<R, E, A>` to declare which capabilities an effect requires, then `run()` only compiles when the environment covers `R`:
+
+```java
+EffectWithEnv<With<StoreOps, LogOps>, Throwable, String> effect = EffectWithEnv.of(
+    new StoreOps.Get("user:1").toEffect()
+        .flatMap(name -> new LogOps.Info("read: " + name).toEffect().map(__ -> name))
+);
+
+String name = effect.run(fullEnv, runtime);   // compiles — env covers both
+// effect.run(storeEnv, runtime);             // compile error — LogOps missing
+```
+
+Build environments from `Layer<RIn, E, ROut>` recipes — leaf layers or layers that read from other environments during construction:
+
+```java
+Layer<Empty, RuntimeException, DbOps>    dbLayer    = Layer.succeed(DbOps.class, ...);
+Layer<Empty, RuntimeException, AuditOps> auditLayer = Layer.succeed(AuditOps.class, ...);
+
+// Horizontal: same input, merged output
+Layer<Empty, Throwable, With<DbOps, AuditOps>> appLayer = dbLayer.and(auditLayer);
+
+HandlerEnv<With<DbOps, AuditOps>> env =
+    runtime.unsafeRun(appLayer.build(HandlerEnv.empty()));
+```
+
+See **[TYPED_EFFECTS.md](TYPED_EFFECTS.md)** for the complete guide including vertical layer composition, dependency injection between layers, and design notes.
+
 ## Why This Design?
 
 1. **Minimal & Unopinionated**: Roux provides only the infrastructure. You define your own capabilities.

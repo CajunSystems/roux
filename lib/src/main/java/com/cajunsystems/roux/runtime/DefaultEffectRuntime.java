@@ -7,6 +7,7 @@ import com.cajunsystems.roux.Fiber;
 import com.cajunsystems.roux.capability.Capability;
 import com.cajunsystems.roux.capability.CapabilityHandler;
 import com.cajunsystems.roux.data.Either;
+import com.cajunsystems.roux.data.Unit;
 import com.cajunsystems.roux.exception.CancelledException;
 import com.cajunsystems.roux.exception.MissingCapabilityHandlerException;
 import com.cajunsystems.roux.exception.TimeoutException;
@@ -59,6 +60,16 @@ public class DefaultEffectRuntime implements EffectRuntime, AutoCloseable {
             executor.shutdownNow();
             Thread.currentThread().interrupt();
         }
+    }
+
+    /**
+     * Perform a sleep of the given duration. Subclasses may override this to
+     * use a virtual clock instead of real wall time (e.g., for testing).
+     *
+     * @throws InterruptedException if the current thread is interrupted during sleep
+     */
+    protected void performSleep(Duration duration) throws InterruptedException {
+        Thread.sleep(duration.toMillis());
     }
 
     // -----------------------------------------------------------------------
@@ -194,6 +205,17 @@ public class DefaultEffectRuntime implements EffectRuntime, AutoCloseable {
             case Effect.Suspend<E, A> suspend -> {
                 try {
                     yield suspend.thunk().get();
+                } catch (Exception e) {
+                    if (e instanceof RuntimeException re) throw re;
+                    throw new RuntimeException(e);
+                }
+            }
+            case Effect.Sleep<?> sleep -> {
+                try {
+                    performSleep(sleep.duration());
+                    yield (A) Unit.unit();
+                } catch (InterruptedException e) {
+                    throw new CancelledException(e);
                 } catch (Exception e) {
                     if (e instanceof RuntimeException re) throw re;
                     throw new RuntimeException(e);
@@ -581,6 +603,17 @@ public class DefaultEffectRuntime implements EffectRuntime, AutoCloseable {
             case Effect.Suspend<E, A> suspend -> {
                 try {
                     yield TrampolineResult.done(suspend.thunk().get());
+                } catch (Exception e) {
+                    yield TrampolineResult.error(e);
+                }
+            }
+
+            case Effect.Sleep<?> sleep -> {
+                try {
+                    performSleep(sleep.duration());
+                    yield TrampolineResult.done(Unit.unit());
+                } catch (InterruptedException e) {
+                    yield TrampolineResult.error(new CancelledException(e));
                 } catch (Exception e) {
                     yield TrampolineResult.error(e);
                 }
