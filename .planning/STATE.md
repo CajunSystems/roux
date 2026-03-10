@@ -2,9 +2,9 @@
 
 ## Current Position
 - **Milestone**: 2 — Type-Safe Layer System
-- **Phase**: 9 — Layer Core
+- **Phase**: 10 — Layer Composition
 - **Plan**: Not yet planned
-- **Status**: Phase 8 complete — EffectWithEnv built and verified; ready to plan Phase 9
+- **Status**: Phase 9 complete — Layer core built and verified; ready to plan Phase 10
 
 ## Recent Decisions
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
@@ -21,6 +21,9 @@
 - `HandlerEnv.of()` phantom type is C (the capability family), not R (the return type)
 - `EffectWithEnv.of()` R is phantom — caller declares it explicitly; Java cannot infer phantom types
 - `EffectWithEnv.flatMap()` accesses private `.effect` field of other instance — legal in Java (per-class not per-instance)
+- `Layer<RIn, E, ROut>` is a @FunctionalInterface — build() is the SAM
+- `Layer.succeed()` returns `Layer<Empty, RuntimeException, C>` — leaf layer, error type is RuntimeException
+- `Layer.fromEffect()` lambda receives HandlerEnv<RIn> and returns Effect<E, ThrowingFunction<C, R>>
 
 ## Open Issues
 None
@@ -36,7 +39,8 @@ None
 - CapabilityVerifier uses JUnit assertions internally (test scope only — no production impact)
 - Phase 10 (Layer composition) has HIGH research flag — andProvide type threading is most complex generics challenge
 - Phase 11 (F-bounded Builder) has MEDIUM flag — existing call sites may need updates after on() signature change
-- HandlerEnv, Empty, With live in com.cajunsystems.roux.capability package
+- HandlerEnv, Empty, With, Layer live in com.cajunsystems.roux.capability package
 - HandlerEnv.toHandler() returns CapabilityHandler<Capability<?>> for use with unsafeRunWithHandler
 - HandlerEnv.empty() uses anonymous inner class (not lambda) — Java cannot infer generic type for lambda assigned to CapabilityHandler<Capability<?>>
 - EffectWithEnv lives in com.cajunsystems.roux alongside Effect
+- Layer.fromEffect map: effectFn.apply(env).map(h -> HandlerEnv.of(type, h)) — may need local variable for type inference

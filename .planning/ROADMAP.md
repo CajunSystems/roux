@@ -161,7 +161,7 @@ handler.verify(FetchUser.class).neverCalled();
 
 ---
 
-### Phase 9: Layer Core
+### Phase 9: Layer Core ✓ Complete
 
 **Goal:** `Layer<RIn, E, ROut>` — recipe that builds a `HandlerEnv<ROut>` from a `HandlerEnv<RIn>`, possibly performing effects during construction.
 
