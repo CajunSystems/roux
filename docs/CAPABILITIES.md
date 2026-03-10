@@ -88,7 +88,17 @@ Effect<Throwable, Dashboard> dashboard = new GetUser("123")
     .zipPar(new GetOrders("123").toEffect(), Dashboard::new);
 ```
 
-### 6. Building Handlers (0.2.0+)
+### 6. Type-Safe Handlers and Dependency Tracking
+
+For compile-time enforcement that every capability an effect uses has a handler, see the
+[Typed Layers guide](TYPED_LAYERS.md).  It covers:
+
+- `HandlerEnv<R>` — typed wrapper around a handler, with F-bounded factory methods
+- `Layer<RIn, E, ROut>` — ZIO-style layer for dependency-tracked handler composition
+- `TypedEffect<R, E, A>` — effect that declares its capability requirements
+- `Empty` / `With<A, B>` — phantom types forming a type-level capability set
+
+### 7. Building Handlers (0.2.0+)
 
 Use the fluent `CapabilityHandler.builder()` for clean, lambda-friendly handler definitions:
 
