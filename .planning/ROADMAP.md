@@ -172,7 +172,7 @@ handler.verify(FetchUser.class).neverCalled();
 
 ---
 
-### Phase 10: Layer Composition
+### Phase 10: Layer Composition ✓ Complete
 
 **Goal:** Horizontal (`and`) and vertical (`andProvide`) composition operators.
 

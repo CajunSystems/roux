@@ -2,9 +2,9 @@
 
 ## Current Position
 - **Milestone**: 2 — Type-Safe Layer System
-- **Phase**: 10 — Layer Composition
-- **Plan**: Not yet planned
-- **Status**: Phase 9 complete — Layer core built and verified; ready to plan Phase 10
+- **Phase**: 10 — Layer Composition ✓ Complete
+- **Plan**: 10-1 complete
+- **Status**: Phase 10 complete — Layer composition operators added and verified; ready for Phase 11
 
 ## Recent Decisions
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
@@ -24,6 +24,8 @@
 - `Layer<RIn, E, ROut>` is a @FunctionalInterface — build() is the SAM
 - `Layer.succeed()` returns `Layer<Empty, RuntimeException, C>` — leaf layer, error type is RuntimeException
 - `Layer.fromEffect()` lambda receives HandlerEnv<RIn> and returns Effect<E, ThrowingFunction<C, R>>
+- `Layer.and()` and `Layer.andProvide()` widen both error types to `Throwable` (no Java union types for checked exceptions)
+- `DefaultEffectRuntime.create()` is the correct factory (no-arg constructor does not exist); tests must call `runtime.close()` in `@AfterEach`
 
 ## Open Issues
 None
