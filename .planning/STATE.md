@@ -15,7 +15,7 @@
 - Effect equivalence: run both effects and compare outcomes (not structural equality)
 - `EffectLawSupport` is a static utility class (not abstract base) — avoids inheritance coupling
 - Failure equivalence compares exception class + message (not reference) — exceptions lack meaningful equals()
-- Milestone 2: `TypedEffect<R,E,A>` is a thin wrapper — `Effect<E,A>` production API unchanged
+- Milestone 2: `EffectWithEnv<R,E,A>` is a thin wrapper — `Effect<E,A>` production API unchanged
 - Milestone 2: Phantom types `Empty`/`With<A,B>` are never instantiated — compile-time only
 - Milestone 2: `HandlerEnv.and()` returns `HandlerEnv<With<R, S>>` — right-nested by convention
 

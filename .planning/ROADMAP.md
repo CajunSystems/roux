@@ -133,7 +133,7 @@ handler.verify(FetchUser.class).neverCalled();
 
 **Goal:** Extend the capability system with a ZIO-style layer mechanism that gives compile-time verification that every capability an effect uses has a handler — no runtime `UnsupportedOperationException` from a forgotten handler; the program won't compile.
 
-**Success:** Developers declare `TypedEffect<R, E, A>` encoding which capabilities are needed, compose `HandlerEnv<R>` environments the compiler checks against, and wire dependencies through `Layer<RIn, E, ROut>` recipes.
+**Success:** Developers declare `EffectWithEnv<R, E, A>` encoding which capabilities are needed, compose `HandlerEnv<R>` environments the compiler checks against, and wire dependencies through `Layer<RIn, E, ROut>` recipes.
 
 ---
 
@@ -150,12 +150,12 @@ handler.verify(FetchUser.class).neverCalled();
 
 ---
 
-### Phase 8: TypedEffect
+### Phase 8: EffectWithEnv
 
-**Goal:** `TypedEffect<R, E, A>` — a thin wrapper around `Effect<E, A>` that statically declares which capability environment `R` the effect needs.
+**Goal:** `EffectWithEnv<R, E, A>` — a thin wrapper around `Effect<E, A>` that statically declares which capability environment `R` the effect needs.
 
 **Deliverables:**
-- `TypedEffect<R, E, A>` — `.of()`, `.pure()`, `.map()`, `.flatMap()`, `.run(HandlerEnv<R>, EffectRuntime)`
+- `EffectWithEnv<R, E, A>` — `.of()`, `.pure()`, `.map()`, `.flatMap()`, `.run(HandlerEnv<R>, EffectRuntime)`
 
 **Research flags:** Low
 
@@ -186,7 +186,7 @@ handler.verify(FetchUser.class).neverCalled();
 
 ### Phase 11: F-Bounded Builder + Integration Tests
 
-**Goal:** Upgrade `CapabilityHandler.Builder.on()` to F-bounded return type and write end-to-end integration tests for the full Layer → Env → TypedEffect workflow.
+**Goal:** Upgrade `CapabilityHandler.Builder.on()` to F-bounded return type and write end-to-end integration tests for the full Layer → Env → EffectWithEnv workflow.
 
 **Deliverables:**
 - `CapabilityHandler.Builder.on()` upgraded to `<R, C extends F & Capability<R>>`
