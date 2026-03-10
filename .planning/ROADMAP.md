@@ -97,7 +97,7 @@ EffectAssertions.assertThat(effect)
 
 ---
 
-### Phase 6: Capability Test Doubles
+### Phase 6: Capability Test Doubles ✓ Complete
 
 **Goal:** Reduce boilerplate for building `CapabilityHandler` stubs and spies in tests. Let developers set up handlers that track calls, return canned responses, and assert interaction patterns.
 

@@ -3,8 +3,8 @@
 ## Current Position
 - **Milestone**: 1 — Effect Laws & Test Utilities
 - **Phase**: 6 — Capability Test Doubles
-- **Plan**: Not yet planned
-- **Status**: Phase 5 complete — TestRuntime built and verified; ready to plan Phase 6
+- **Plan**: 06-1 complete
+- **Status**: Milestone 1 complete — all 6 phases done; Effect laws verified, test utilities shipped
 
 ## Recent Decisions
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
@@ -27,3 +27,5 @@ None
 - Uncommitted changes to `docs/CAPABILITIES.md` and `CapabilityHandler.java` still present — not blocking
 - Sleep is now a first-class Effect primitive (not a Suspend thunk) — enables runtime interception
 - TestRuntime.performSleep override uses virtual clock; Sleep record has one type param E (not two)
+- TestCapabilityHandler implements CapabilityHandler<Capability<?>> directly — no .widen() needed at call sites
+- CapabilityVerifier uses JUnit assertions internally (test scope only — no production impact)
