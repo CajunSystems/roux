@@ -131,4 +131,26 @@ public interface Layer<RIn, E extends Throwable, ROut> {
     private static <Ex extends Throwable, A> Effect<Throwable, A> widenError(Effect<Ex, A> effect) {
         return (Effect<Throwable, A>) effect;
     }
+
+    /**
+     * Horizontal composition: both layers share the same input, outputs are merged.
+     *
+     * <pre>{@code
+     * Layer<Empty, Throwable, With<DbOps, AuditOps>> appLayer = dbLayer.and(auditLayer);
+     * HandlerEnv<With<DbOps, AuditOps>> env =
+     *     runtime.unsafeRun(appLayer.build(HandlerEnv.empty()));
+     * }</pre>
+     *
+     * <p>The combined layer's error type is {@code Throwable} — both individual error
+     * types are widened to their common supertype.
+     *
+     * @param other the other layer to compose with (same input, different output)
+     * @param <E2>  the error type of the other layer
+     * @param <S>   the capability type produced by the other layer
+     * @return a layer that builds both and merges their environments
+     */
+    default <E2 extends Throwable, S> Layer<RIn, Throwable, With<ROut, S>> and(Layer<RIn, E2, S> other) {
+        return env -> widenError(this.build(env))
+                .flatMap(h1 -> widenError(other.build(env)).map(h2 -> h1.and(h2)));
+    }
 }
