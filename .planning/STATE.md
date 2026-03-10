@@ -2,9 +2,9 @@
 
 ## Current Position
 - **Milestone**: 1 — Effect Laws & Test Utilities
-- **Phase**: 1 — Law Test Infrastructure
+- **Phase**: 2 — Functor & Monad Laws
 - **Plan**: Not yet planned
-- **Status**: Ready to plan
+- **Status**: Phase 1 complete, ready to plan Phase 2
 
 ## Recent Decisions
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
@@ -13,6 +13,8 @@
 - Java 21+ only — use modern Java freely
 - Hand-crafted law inputs — specific examples are clearer proofs than generated ones
 - Effect equivalence: run both effects and compare outcomes (not structural equality)
+- `EffectLawSupport` is a static utility class (not abstract base) — avoids inheritance coupling
+- Failure equivalence compares exception class + message (not reference) — exceptions lack meaningful equals()
 
 ## Open Issues
 None
