@@ -2,10 +2,12 @@
 
 ## Current Position
 - **Milestone**: 3 — PR Review Fixes & v0.3.0 Release Notes
-- **Phase**: 12 — Greptile Code Quality Fixes (not yet planned)
-- **Status**: Milestone defined, Phase 12 ready to plan
+- **Phase**: 12 ✓ Complete
+- **Status**: Phase 13 — v0.3.0 Release Notes & Migration Guide (not yet planned)
 
 ## Recent Decisions
+- Gradle configuration cache was stale in this environment — use `--no-configuration-cache` when cache issues arise
+
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
 - Test utilities in same artifact under test scope — no separate artifact complexity
 - No new production dependencies — zero-dep production code preserved
