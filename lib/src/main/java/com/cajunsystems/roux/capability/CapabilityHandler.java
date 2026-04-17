@@ -91,21 +91,45 @@ public interface CapabilityHandler<C extends Capability<?>> {
     // -----------------------------------------------------------------------
 
     /**
-     * Returns a fluent builder for constructing a capability handler that
-     * dispatches on exact capability types without relying on exceptions.
+     * Returns a fluent builder for constructing a capability handler.
      *
-     * <pre>{@code
-     * CapabilityHandler<Capability<?>> handler = CapabilityHandler.builder()
-     *     .on(MyCapability.Fetch.class, fetch -> httpClient.get(fetch.url()))
-     *     .on(MyCapability.Log.class,   log   -> { logger.info(log.message()); return null; })
-     *     .build();
-     * }</pre>
+     * @deprecated Use {@link #forType(Class)} instead — it provides the same
+     *             functionality with improved lambda type inference and is the
+     *             recommended API from v0.3.0 onwards.
+     *             For environments covering multiple capability families, use
+     *             {@link com.cajunsystems.roux.capability.HandlerEnv#of} per family
+     *             and combine with {@link com.cajunsystems.roux.capability.HandlerEnv#and}.
+     * @see #forType(Class)
      */
-    static Builder builder() {
-        return new Builder();
+    @Deprecated(since = "0.3.0", forRemoval = false)
+    static Builder<Capability<?>> builder() {
+        return new Builder<>();
     }
 
-    final class Builder {
+    /**
+     * Returns a typed builder for a capability type with improved type inference.
+     * Lambda parameters in {@code .on(...)} will be correctly typed without hints.
+     *
+     * <pre>{@code
+     * sealed interface AppCapability<R> extends Capability<R> {
+     *     record Log(String msg) implements AppCapability<Unit> {}
+     *     record GetValue(String key) implements AppCapability<String> {}
+     * }
+     *
+     * var handler = CapabilityHandler.forType(AppCapability.class)
+     *     .on(AppCapability.Log.class, c -> { logger.info(c.msg()); return Unit.unit(); })
+     *     .on(AppCapability.GetValue.class, c -> "value-" + c.key())
+     *     .build();
+     * }</pre>
+     *
+     * @param capabilityType The sealed interface representing the capability type
+     */
+    @SuppressWarnings("unused") // capabilityType drives compile-time inference of F; not used at runtime
+    static <F extends Capability<?>> Builder<F> forType(Class<F> capabilityType) {
+        return new Builder<>();
+    }
+
+    final class Builder<F extends Capability<?>> {
         private final Map<Class<?>, CapabilityHandler<?>> handlers = new HashMap<>();
 
         private Builder() {}
@@ -116,9 +140,9 @@ public interface CapabilityHandler<C extends Capability<?>> {
          * type at runtime.
          *
          * <pre>{@code
-         * CapabilityHandler.builder()
-         *     .on(MyCapability.Fetch.class, fetch -> httpClient.get(fetch.url()))
-         *     .on(MyCapability.Log.class,   log   -> { logger.info(log.msg()); return null; })
+         * CapabilityHandler.forType(AppCapability.class)
+         *     .on(AppCapability.Fetch.class, fetch -> httpClient.get(fetch.url()))
+         *     .on(AppCapability.Log.class,   log   -> { logger.info(log.msg()); return Unit.unit(); })
          *     .build();
          * }</pre>
          *
@@ -126,14 +150,14 @@ public interface CapabilityHandler<C extends Capability<?>> {
          * @param handler handler lambda for that specific type
          */
         @SuppressWarnings("unchecked")
-        public <C extends Capability<?>> Builder on(
+        public <C extends F, R> Builder<F> on(
                 Class<C> type,
-                ThrowingFunction<C, ?> handler
+                ThrowingFunction<C, R> handler
         ) {
             handlers.put(type, new CapabilityHandler<C>() {
                 @Override
-                public <R> R handle(C capability) throws Exception {
-                    return (R) handler.apply(capability);
+                public <R2> R2 handle(C capability) throws Exception {
+                    return (R2) handler.apply(capability);
                 }
             });
             return this;

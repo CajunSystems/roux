@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-04-17
+
+### Added
+- **`EffectWithEnv<R,E,A>`** — phantom-typed wrapper over `Effect<E,A>` that statically tracks which capabilities an effect requires; `of()`, `pure()`, `map()`, `flatMap()`, `run()`
+- **`HandlerEnv<R>`** — typed capability environment wrapper; `of()`, `and()`, `empty()`, `fromHandler()`, `toHandler()`
+- **`Layer<RIn,E,ROut>`** — ZIO-style layer for building and composing capability environments; `succeed()`, `fromEffect()`, `and()` (horizontal), `andProvide()` (vertical)
+- **`Empty`** phantom type — marks effects that require no capabilities
+- **`With<A,B>`** phantom type — capability environment union (right-nested by convention)
+- **`Effect.Sleep<E>`** record — first-class sleep effect node; enables runtime interception and virtual-clock testing (replaces the prior `Suspend`-based implementation of `Effect.sleep()`)
+- **`TestRuntime`** — `DefaultEffectRuntime` subclass that overrides `performSleep()` to advance a virtual `TestClock` instead of blocking real time; enables instant, deterministic sleep tests
+- **`TestClock`** — virtual clock with `advance(Duration)`, `currentTime()`, `reset()`
+- **`CapabilityHandler.forType(Class<F>)`** — type-safe builder factory with improved lambda inference; promoted as the sole recommended API for constructing capability handlers
+
+### Changed
+- `Effect.sleep(Duration)` now creates an `Effect.Sleep` node instead of an `Effect.Suspend` node, enabling the new `TestRuntime` virtual-clock override
+- `HandlerEnv.empty()` now returns a shared static singleton instead of allocating a new anonymous class on every call (no behaviour change)
+- `DefaultEffectRuntime.performSleep()` now calls `Thread.sleep(Duration)` (Java 19+) instead of `Thread.sleep(long millis)`, preserving nanosecond resolution
+
+### Deprecated
+- **`CapabilityHandler.builder()`** — deprecated since v0.3.0; use `CapabilityHandler.forType(Class)` instead
+
+### Breaking Changes
+- **`Effect.Sleep<E>` is a new sealed subtype** — `Sleep` is a new permitted type in the `sealed interface Effect`. Any exhaustive `switch` expression or statement over all `Effect` variants will fail to compile without a `case Effect.Sleep<?> s -> ...` branch. Custom `EffectRuntime` implementations must also handle `Sleep`.
+- **`CapabilityHandler.Builder` is now generic** — the nested class changed from `Builder` to `Builder<F extends Capability<?>>`. Code that explicitly references `CapabilityHandler.Builder` as a raw type will produce compiler warnings.
+
+---
+
 ## [0.2.2] - 2026-03-05
 
 ### Fixed
@@ -198,6 +225,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Capability system tests
 - Generator-style effect tests
 
+[0.3.0]: https://github.com/CajunSystems/roux/releases/tag/v0.3.0
 [0.2.2]: https://github.com/CajunSystems/roux/releases/tag/v0.2.2
 [0.2.1]: https://github.com/CajunSystems/roux/releases/tag/v0.2.1
 [0.2.0]: https://github.com/CajunSystems/roux/releases/tag/v0.2.0

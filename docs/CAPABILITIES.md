@@ -88,16 +88,21 @@ Effect<Throwable, Dashboard> dashboard = new GetUser("123")
     .zipPar(new GetOrders("123").toEffect(), Dashboard::new);
 ```
 
-### 6. Building Handlers (0.2.0+)
+### 6. Building Handlers (0.3.0+)
 
-Use the fluent `CapabilityHandler.builder()` for clean, lambda-friendly handler definitions:
+Use `CapabilityHandler.forType(...)` to build type-safe, lambda-friendly handlers. Pass the sealed capability family class — lambda parameters are correctly typed without any hints:
 
 ```java
 import com.cajunsystems.roux.data.Unit;
 
-CapabilityHandler<Capability<?>> handler = CapabilityHandler.builder()
-    .on(MyCapability.Fetch.class, fetch -> httpClient.get(fetch.url()))
-    .on(MyCapability.Log.class,   log   -> {
+sealed interface AppCapability<R> extends Capability<R> {
+    record Fetch(String url)    implements AppCapability<String> {}
+    record Log(String message)  implements AppCapability<Unit> {}
+}
+
+var handler = CapabilityHandler.forType(AppCapability.class)
+    .on(AppCapability.Fetch.class, fetch -> httpClient.get(fetch.url()))
+    .on(AppCapability.Log.class,   log   -> {
         logger.info(log.message());
         return Unit.unit();
     })
@@ -113,6 +118,54 @@ CapabilityHandler<Capability<?>> combined = CapabilityHandler.compose(
     logHandler
 );
 ```
+
+> **Note:** `CapabilityHandler.builder()` is deprecated since v0.3.0. Use `forType(...)` for single-family handlers. For environments covering multiple capability families, use `HandlerEnv.of()` per family and combine with `.and()` — see section 8 and [TYPED_EFFECTS.md](TYPED_EFFECTS.md).
+
+### 8. Type-Safe Handler Environments (0.3.0+)
+
+`HandlerEnv<R>` wraps a `CapabilityHandler` and tracks, at compile time, which capabilities it covers via a phantom type parameter `R`. This eliminates the runtime `UnsupportedOperationException` you'd get from a forgotten handler — the program won't compile instead.
+
+```java
+// Phantom types — never instantiated, compile-time only
+interface Empty {}                    // no capabilities
+interface With<A, B> {}              // both A and B present
+
+// Create a typed environment for one capability family
+HandlerEnv<StoreOps> storeEnv = HandlerEnv.of(StoreOps.class, cap -> switch (cap) {
+    case StoreOps.Get g  -> store.getOrDefault(g.key(), "missing");
+    case StoreOps.Put p  -> { store.put(p.key(), p.value()); yield "ok"; }
+});
+
+// Combine environments — phantom type tracks both
+HandlerEnv<With<StoreOps, LogOps>> fullEnv = storeEnv.and(logEnv);
+```
+
+Use `EffectWithEnv<R, E, A>` to declare which capabilities an effect requires, then `run()` only compiles when the environment covers `R`:
+
+```java
+EffectWithEnv<With<StoreOps, LogOps>, Throwable, String> effect = EffectWithEnv.of(
+    new StoreOps.Get("user:1").toEffect()
+        .flatMap(name -> new LogOps.Info("read: " + name).toEffect().map(__ -> name))
+);
+
+String name = effect.run(fullEnv, runtime);   // compiles — env covers both
+// effect.run(storeEnv, runtime);             // compile error — LogOps missing
+```
+
+Build environments from `Layer<RIn, E, ROut>` recipes — leaf layers or layers that read from other environments during construction:
+
+```java
+Layer<Empty, RuntimeException, DbOps>    dbLayer    = Layer.succeed(DbOps.class, ...);
+Layer<Empty, RuntimeException, AuditOps> auditLayer = Layer.succeed(AuditOps.class, ...);
+
+// Horizontal: same input, merged output
+Layer<Empty, Throwable, With<DbOps, AuditOps>> appLayer = dbLayer.and(auditLayer);
+
+HandlerEnv<With<DbOps, AuditOps>> env =
+    runtime.unsafeRun(appLayer.build(HandlerEnv.empty()));
+```
+
+See **[TYPED_EFFECTS.md](TYPED_EFFECTS.md)** for the complete guide including vertical layer composition, dependency injection between layers, and design notes.
 
 ## Why This Design?
 

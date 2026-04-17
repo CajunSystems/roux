@@ -57,6 +57,8 @@ public sealed interface Effect<E extends Throwable, A> {
     record Race<E extends Throwable, A>(
             java.util.List<Effect<E, A>> effects
     ) implements Effect<Throwable, A> {}
+    /** Suspends execution for the given duration. Interpreted by the runtime. */
+    record Sleep<E extends Throwable>(Duration duration) implements Effect<E, Unit> {}
 
     // -----------------------------------------------------------------------
     // Smart constructors
@@ -95,10 +97,7 @@ public sealed interface Effect<E extends Throwable, A> {
      * abort if the running thread is interrupted.
      */
     static <E extends Throwable> Effect<E, Unit> sleep(Duration duration) {
-        return suspend(() -> {
-            Thread.sleep(duration.toMillis());
-            return Unit.unit();
-        });
+        return new Sleep<>(duration);
     }
 
     /**
