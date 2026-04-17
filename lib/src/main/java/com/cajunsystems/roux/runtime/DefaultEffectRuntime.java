@@ -69,7 +69,7 @@ public class DefaultEffectRuntime implements EffectRuntime, AutoCloseable {
      * @throws InterruptedException if the current thread is interrupted during sleep
      */
     protected void performSleep(Duration duration) throws InterruptedException {
-        Thread.sleep(duration.toMillis());
+        Thread.sleep(duration);
     }
 
     // -----------------------------------------------------------------------
