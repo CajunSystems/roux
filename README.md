@@ -31,18 +31,18 @@ Roux is a foundational effect system for the JVM that embraces Java's native cap
 <dependency>
     <groupId>com.cajunsystems</groupId>
     <artifactId>roux</artifactId>
-    <version>0.2.2</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 
 ### Gradle (Kotlin DSL)
 ```kotlin
-implementation("com.cajunsystems:roux:0.2.2")
+implementation("com.cajunsystems:roux:0.3.0")
 ```
 
 ### Gradle (Groovy)
 ```groovy
-implementation 'com.cajunsystems:roux:0.2.2'
+implementation 'com.cajunsystems:roux:0.3.0'
 ```
 
 **Requirements:** Java 21 or higher
@@ -268,7 +268,7 @@ For side-effect-only capabilities (logging, metrics, notifications), prefer `Uni
 **Gradle:**
 ```groovy
 dependencies {
-    implementation 'com.cajunsystems:roux:0.2.2'
+    implementation 'com.cajunsystems:roux:0.3.0'
 }
 ```
 
@@ -277,7 +277,7 @@ dependencies {
 <dependency>
     <groupId>com.cajunsystems</groupId>
     <artifactId>roux</artifactId>
-    <version>0.2.2</version>
+    <version>0.3.0</version>
 </dependency>
 ```
 
