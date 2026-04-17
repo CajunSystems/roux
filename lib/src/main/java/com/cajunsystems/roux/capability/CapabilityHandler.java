@@ -124,6 +124,7 @@ public interface CapabilityHandler<C extends Capability<?>> {
      *
      * @param capabilityType The sealed interface representing the capability type
      */
+    @SuppressWarnings("unused") // capabilityType drives compile-time inference of F; not used at runtime
     static <F extends Capability<?>> Builder<F> forType(Class<F> capabilityType) {
         return new Builder<>();
     }
