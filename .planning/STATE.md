@@ -1,9 +1,9 @@
 # State
 
 ## Current Position
-- **Milestone**: 2 — Type-Safe Layer System ✓ Complete
-- **Phase**: 11 ✓ Complete
-- **Status**: Both milestones archived — ready for next milestone
+- **Milestone**: 3 — PR Review Fixes & v0.3.0 Release Notes
+- **Phase**: 12 — Greptile Code Quality Fixes (not yet planned)
+- **Status**: Milestone defined, Phase 12 ready to plan
 
 ## Recent Decisions
 - Law tests as JUnit tests (not documentation) — runnable proof catches regressions
