@@ -109,14 +109,16 @@ public final class HandlerEnv<R> {
      * HandlerEnv<Empty> env = HandlerEnv.empty();
      * }</pre>
      */
+    private static final HandlerEnv<Empty> EMPTY_INSTANCE = new HandlerEnv<>(
+            new CapabilityHandler<Capability<?>>() {
+                @Override
+                public <R> R handle(Capability<?> cap) {
+                    throw new UnsupportedOperationException(
+                            "No handler registered for capability: " + cap.getClass().getName());
+                }
+            });
+
     public static HandlerEnv<Empty> empty() {
-        CapabilityHandler<Capability<?>> noOp = new CapabilityHandler<>() {
-            @Override
-            public <R> R handle(Capability<?> cap) {
-                throw new UnsupportedOperationException(
-                        "No handler registered for capability: " + cap.getClass().getName());
-            }
-        };
-        return new HandlerEnv<>(noOp);
+        return EMPTY_INSTANCE;
     }
 }
