@@ -16,7 +16,7 @@ ZIO-style layer mechanism giving compile-time verification that every capability
 
 ---
 
-## Milestone 3: PR Review Fixes & v0.3.0 Release Notes
+## Milestone 3: PR Review Fixes & v0.3.0 Release Notes ✓ Complete
 
 Address all Greptile review findings on PR #6 (CajunSystems/roux#6) and produce the v0.3.0 release artefacts. Two phases: targeted code quality fixes followed by comprehensive release notes with breaking-change migration guidance.
 
