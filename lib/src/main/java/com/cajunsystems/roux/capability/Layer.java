@@ -118,7 +118,7 @@ public interface Layer<RIn, E extends Throwable, ROut> {
             Function<HandlerEnv<RIn>, Effect<E, ThrowingFunction<C, R>>> effectFn
     ) {
         return env -> effectFn.apply(env).map(h -> {
-            HandlerEnv<C> result = HandlerEnv.of(type, h);
+            HandlerEnv<C> result = HandlerEnv.of(type, h); // local var required — javac cannot infer type of inlined expression
             return result;
         });
     }
