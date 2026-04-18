@@ -9,3 +9,5 @@
 
 rootProject.name = "roux"
 include("lib")
+include("roux-reactor")
+include("roux-rxjava")

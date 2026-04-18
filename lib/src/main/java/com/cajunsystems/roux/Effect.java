@@ -3,10 +3,15 @@ package com.cajunsystems.roux;
 import com.cajunsystems.roux.capability.CapabilityHandler;
 import com.cajunsystems.roux.capability.Capability;
 import com.cajunsystems.roux.data.Either;
+import com.cajunsystems.roux.data.ThrowingRunnable;
 import com.cajunsystems.roux.data.ThrowingSupplier;
 import com.cajunsystems.roux.data.Unit;
+import com.cajunsystems.roux.exception.CancelledException;
 
 import java.time.Duration;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -150,6 +155,82 @@ public sealed interface Effect<E extends Throwable, A> {
         return new PerformCapability<>(capability);
     }
 
+    /**
+     * Wrap a legacy blocking call (JDBC, file I/O, old REST clients, etc.) as an effect.
+     * Semantically equivalent to {@link #suspend} today — virtual threads handle blocking
+     * naturally — but documents intent and future-proofs the call site if a dedicated
+     * blocking pool is ever introduced.
+     */
+    static <E extends Throwable, A> Effect<E, A> blocking(ThrowingSupplier<A> thunk) {
+        return new Suspend<>(thunk);
+    }
+
+    /**
+     * Wrap a blocking {@link Runnable}-style legacy call that returns no value.
+     */
+    static <E extends Throwable> Effect<E, Unit> blockingUnit(ThrowingRunnable action) {
+        return blocking(() -> { action.run(); return Unit.unit(); });
+    }
+
+    /**
+     * Lift a {@link Callable} into an effect. Useful for adapting executor-submitted
+     * tasks or any existing {@code Callable} to the effect system.
+     */
+    static <A> Effect<Exception, A> fromCallable(Callable<A> callable) {
+        return new Suspend<>(callable::call);
+    }
+
+    /**
+     * Lift an already-running {@link CompletableFuture} into an effect.
+     * The effect blocks on the future's result when executed.
+     *
+     * <p>Prefer the lazy {@link #fromFuture(Supplier)} overload when you control
+     * future creation — this overload starts the async work immediately regardless
+     * of whether the effect is ever run.
+     */
+    static <A> Effect<Throwable, A> fromFuture(CompletableFuture<A> future) {
+        return new Suspend<>(() -> {
+            try {
+                return future.get();
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw new RuntimeException(cause);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                future.cancel(true);
+                throw new CancelledException(e);
+            }
+        });
+    }
+
+    /**
+     * Lazily lift a {@link CompletableFuture} into an effect. The factory is called
+     * only when the effect is run, so async work does not start until execution.
+     *
+     * <pre>{@code
+     * Effect<Throwable, HttpResponse> response = Effect.fromFuture(
+     *     () -> httpClient.sendAsync(request, bodyHandler)
+     * );
+     * }</pre>
+     */
+    static <A> Effect<Throwable, A> fromFuture(Supplier<CompletableFuture<A>> futureFactory) {
+        return new Suspend<>(() -> {
+            CompletableFuture<A> future = futureFactory.get();
+            try {
+                return future.get();
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw new RuntimeException(cause);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                future.cancel(true);
+                throw new CancelledException(e);
+            }
+        });
+    }
+
     // -----------------------------------------------------------------------
     // Transformation combinators
     // -----------------------------------------------------------------------
@@ -173,12 +254,44 @@ public sealed interface Effect<E extends Throwable, A> {
         });
     }
 
+    /**
+     * Alias for {@link #tap} using the naming convention familiar from {@link java.util.stream.Stream#peek}.
+     */
+    default Effect<E, A> peek(Consumer<A> action) {
+        return tap(action);
+    }
+
     // -----------------------------------------------------------------------
     // Error-handling combinators
     // -----------------------------------------------------------------------
 
     default Effect<E, A> catchAll(Function<E, Effect<E, A>> handler) {
         return new Fold<>(this, handler, Effect::succeed);
+    }
+
+    /**
+     * Recover from any error by applying {@code f} to produce a fallback value.
+     * Shorthand for {@code catchAll(e -> Effect.succeed(f.apply(e)))}.
+     *
+     * <pre>{@code
+     * fetchUser(id).recover(err -> User.anonymous());
+     * }</pre>
+     */
+    default Effect<E, A> recover(Function<E, A> f) {
+        return catchAll(e -> succeed(f.apply(e)));
+    }
+
+    /**
+     * Recover from any error by supplying an alternative effect.
+     * Mirrors the naming of {@link java.util.Optional#or} and reads more clearly
+     * than {@link #catchAll} when the intent is recovery rather than general handling.
+     *
+     * <pre>{@code
+     * fetchFromDb(id).recoverWith(err -> fetchFromCache(id));
+     * }</pre>
+     */
+    default Effect<E, A> recoverWith(Function<E, Effect<E, A>> f) {
+        return catchAll(f);
     }
 
     /**
