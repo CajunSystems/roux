@@ -247,13 +247,15 @@ public final class Effects {
      */
     public static <A> Effect<Throwable, A> fromExecutor(ExecutorService executor, Callable<A> task) {
         return Effect.suspend(() -> {
+            java.util.concurrent.Future<A> future = executor.submit(task);
             try {
-                return executor.submit(task).get();
+                return future.get();
             } catch (java.util.concurrent.ExecutionException e) {
                 Throwable cause = e.getCause();
                 if (cause instanceof Exception ex) throw ex;
                 throw new RuntimeException(cause);
             } catch (InterruptedException e) {
+                future.cancel(true);
                 Thread.currentThread().interrupt();
                 throw new com.cajunsystems.roux.exception.CancelledException(e);
             }

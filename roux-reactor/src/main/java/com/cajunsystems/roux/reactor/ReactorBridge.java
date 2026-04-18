@@ -40,6 +40,10 @@ public final class ReactorBridge {
      * when the effect runs, so subscription does not happen until execution.
      *
      * <p>Prefer this overload when you control {@code Mono} construction.
+     *
+     * <p><b>Empty Mono:</b> if the factory produces {@code Mono.empty()}, the effect
+     * succeeds with {@code null}. Use {@code .switchIfEmpty(Mono.error(...))} upstream
+     * if empty should be treated as a failure.
      */
     public static <A> Effect<Throwable, A> fromMono(Supplier<Mono<A>> monoFactory) {
         return Effect.suspend(() -> {
@@ -56,6 +60,11 @@ public final class ReactorBridge {
     /**
      * Lift an already-constructed {@link Mono} into an effect. Subscription (and
      * any side effects in the Mono pipeline) happens when the effect runs.
+     *
+     * <p><b>Empty Mono:</b> {@code Mono.empty()} completes without a value; {@link Mono#block()}
+     * returns {@code null} in that case, so the resulting effect succeeds with {@code null}.
+     * If an empty Mono should be treated as a failure, apply {@code .switchIfEmpty(Mono.error(...))}
+     * before passing it here.
      */
     public static <A> Effect<Throwable, A> fromMono(Mono<A> mono) {
         return Effect.suspend(() -> {

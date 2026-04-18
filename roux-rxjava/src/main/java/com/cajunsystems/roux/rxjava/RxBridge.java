@@ -40,10 +40,7 @@ public final class RxBridge {
             try {
                 return singleFactory.get().blockingGet();
             } catch (RuntimeException e) {
-                Throwable cause = e.getCause();
-                if (cause instanceof Exception ex) throw ex;
-                if (cause != null) throw new RuntimeException(cause);
-                throw e;
+                throw unwrap(e);
             }
         });
     }
@@ -57,12 +54,8 @@ public final class RxBridge {
             try {
                 return single.blockingGet();
             } catch (RuntimeException e) {
-                // RxJava wraps checked exceptions in RuntimeException — unwrap so callers
-                // see the original exception type rather than an RxJava implementation detail.
-                Throwable cause = e.getCause();
-                if (cause instanceof Exception ex) throw ex;
-                if (cause != null) throw new RuntimeException(cause);
-                throw e;
+                // RxJava wraps checked exceptions — unwrap so callers see the original type.
+                throw unwrap(e);
             }
         });
     }
@@ -101,10 +94,7 @@ public final class RxBridge {
             try {
                 return observableFactory.get().toList().blockingGet();
             } catch (RuntimeException e) {
-                Throwable cause = e.getCause();
-                if (cause instanceof Exception ex) throw ex;
-                if (cause != null) throw new RuntimeException(cause);
-                throw e;
+                throw unwrap(e);
             }
         });
     }
@@ -126,5 +116,21 @@ public final class RxBridge {
      */
     public static <A> Observable<A> toObservable(Effect<?, List<A>> effect, EffectRuntime runtime) {
         return toSingle(effect, runtime).flatMapObservable(Observable::fromIterable);
+    }
+
+    // -----------------------------------------------------------------------
+    // Internal
+    // -----------------------------------------------------------------------
+
+    // Peel nested RuntimeExceptions until we reach a checked exception or a Throwable
+    // with no further cause. This mirrors the full-depth unwrapping that Reactor's
+    // Exceptions.unwrap() performs, keeping both bridges consistent.
+    private static Exception unwrap(RuntimeException e) {
+        Throwable t = e;
+        while (t instanceof RuntimeException && t.getCause() != null) {
+            t = t.getCause();
+        }
+        if (t instanceof Exception ex) return ex;
+        return new RuntimeException(t);
     }
 }
