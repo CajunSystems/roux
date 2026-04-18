@@ -133,6 +133,19 @@ public sealed interface Effect<E extends Throwable, A> {
         return new Generate<>(generator, handler);
     }
 
+    /**
+     * Build an effect using the imperative generator style, without a capability
+     * handler. Use {@code ctx.yield(effect)} to sequence effects and propagate typed
+     * errors; use {@code ctx.call(supplier)} to lift throwing lambdas.
+     *
+     * <p>Calling {@code ctx.perform(capability)} inside this block throws at runtime
+     * because no handler is registered. Use {@link #generate(EffectGenerator, CapabilityHandler)}
+     * when capabilities are needed.
+     */
+    static <E extends Throwable, A> Effect<E, A> effect(EffectGenerator<E, A> generator) {
+        return new Generate<>(generator, CapabilityHandler.builder().build());
+    }
+
     static <E extends Throwable, R> Effect<E, R> from(Capability<R> capability) {
         return new PerformCapability<>(capability);
     }

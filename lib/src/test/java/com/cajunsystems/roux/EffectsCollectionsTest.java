@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import com.cajunsystems.roux.data.Either;
+
 import static com.cajunsystems.roux.Effects.*;
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -187,5 +189,87 @@ class EffectsCollectionsTest {
     void raceWithSingleElementReturnsThatEffect() throws Throwable {
         String result = runtime.unsafeRun(race(List.of(Effect.succeed("only"))));
         assertEquals("only", result);
+    }
+
+    // -----------------------------------------------------------------------
+    // parTraverse
+    // -----------------------------------------------------------------------
+
+    @Test
+    void parTraverseRunsAllElementsInParallelAndCollectsResults() throws Throwable {
+        long start = System.currentTimeMillis();
+        List<Integer> results = runtime.unsafeRun(
+                parTraverse(List.of(1, 2, 3), n ->
+                        Effect.suspend(() -> { Thread.sleep(50); return n * 10; }))
+        );
+        long elapsed = System.currentTimeMillis() - start;
+
+        assertEquals(List.of(10, 20, 30), results);
+        assertTrue(elapsed < 300, "Expected parallel execution, took " + elapsed + "ms");
+    }
+
+    @Test
+    void parTraversePreservesInputOrder() throws Throwable {
+        List<String> results = runtime.unsafeRun(
+                parTraverse(List.of("a", "b", "c"), s -> Effect.succeed(s.toUpperCase()))
+        );
+        assertEquals(List.of("A", "B", "C"), results);
+    }
+
+    @Test
+    void parTraverseFailsFastOnError() {
+        AtomicBoolean thirdRan = new AtomicBoolean(false);
+        assertThrows(RuntimeException.class, () ->
+                runtime.unsafeRun(parTraverse(List.of(1, 2, 3), n -> {
+                    if (n == 2) return Effect.fail(new RuntimeException("fail"));
+                    if (n == 3) return Effect.suspend(() -> { Thread.sleep(200); thirdRan.set(true); return n; });
+                    return Effect.succeed(n);
+                }))
+        );
+    }
+
+    @Test
+    void parTraverseEmptyListReturnsEmptyList() throws Throwable {
+        List<Integer> results = runtime.unsafeRun(
+                parTraverse(List.<Integer>of(), n -> Effect.succeed(n * 2))
+        );
+        assertTrue(results.isEmpty());
+    }
+
+    // -----------------------------------------------------------------------
+    // parTraverseEither
+    // -----------------------------------------------------------------------
+
+    @Test
+    void parTraverseEitherCollectsSuccessesAndFailures() throws Throwable {
+        List<Either<Throwable, Integer>> results = runtime.unsafeRun(
+                parTraverseEither(List.of(1, 2, 3), n -> {
+                    if (n == 2) return Effect.fail(new RuntimeException("bad"));
+                    return Effect.succeed(n * 10);
+                })
+        );
+
+        assertEquals(3, results.size());
+        assertTrue(results.get(0).isRight());
+        assertTrue(results.get(1).isLeft());
+        assertTrue(results.get(2).isRight());
+        assertEquals(10, results.get(0).getOrElse(__ -> -1));
+        assertEquals(30, results.get(2).getOrElse(__ -> -1));
+    }
+
+    @Test
+    void parTraverseEitherAllSuccessReturnsAllRights() throws Throwable {
+        List<Either<Throwable, Integer>> results = runtime.unsafeRun(
+                parTraverseEither(List.of(1, 2, 3), n -> Effect.succeed(n))
+        );
+        assertTrue(results.stream().allMatch(Either::isRight));
+    }
+
+    @Test
+    void parTraverseEitherEmptyListReturnsEmptyList() throws Throwable {
+        List<Either<Throwable, Integer>> results = runtime.unsafeRun(
+                parTraverseEither(List.<Integer>of(), n -> Effect.succeed(n))
+        );
+        assertTrue(results.isEmpty());
     }
 }
