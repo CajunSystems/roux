@@ -105,6 +105,75 @@ var handler = CapabilityHandler.forType(StoreOps.class)
 
 ---
 
+### ✅ `parTraverse` — parallel map over a collection
+
+`Effects.parTraverse` collapses the two-step "build list then `parAll`" pattern into one declarative call. `parTraverseEither` is the tolerant variant — it collects both successes and failures instead of short-circuiting.
+
+```java
+// Before
+List<Effect<Throwable, Result>> effs = new ArrayList<>();
+for (Item item : items) {
+    effs.add(checkInventory(item).<Throwable>toEffect());
+}
+Effect<Throwable, List<Result>> result = parAll(effs);
+
+// After
+Effect<Throwable, List<Result>> result =
+    Effects.parTraverse(items, item -> checkInventory(item).<Throwable>toEffect());
+
+// Collect all results — no short-circuit on failure
+Effect<Throwable, List<Either<Throwable, Result>>> mixed =
+    Effects.parTraverseEither(items, item -> checkInventory(item).<Throwable>toEffect());
+```
+
+### ✅ `Schedule<A, B>` — composable repeat-on-success scheduling
+
+`RetryPolicy` handles the failure path (retry on error). `Schedule` handles the success path — repeat an effect on a cadence, while a predicate holds, or for a fixed number of iterations, and optionally accumulate the outputs. The two compose naturally.
+
+```java
+// Poll every 2 s, up to 10 times, until done — collect all status values
+Schedule<Status, List<Status>> schedule = Schedule
+    .<Status>fixed(Duration.ofSeconds(2))
+    .recurs(10)
+    .whileOutput(s -> !s.isDone())
+    .collect();
+
+Effect<Throwable, List<Status>> polling = schedule.repeat(checkStatus);
+
+// Retry transient failures, then repeat on success
+schedule.repeat(
+    unstableCheck.retry(RetryPolicy.exponential(Duration.ofMillis(50)).maxAttempts(3))
+);
+```
+
+**API surface:**
+- Factories: `fixed(Duration)`, `exponential(Duration)`, `immediate()`
+- Termination: `recurs(n)`, `whileOutput(pred)`, `untilOutput(pred)`, `maxDelay(Duration)`, `jittered(factor)`
+- Accumulation: `collect()` — folds all outputs into `List<A>`
+- Execution: `repeat(effect)` — stack-safe, integrates with the trampolined runtime
+
+### ✅ `Effect.effect()` — no-handler generator entry point
+
+When writing generator-style blocks that only use `ctx.yield()` and `ctx.call()` (no capability dispatch), the `CapabilityHandler` argument to `Effect.generate()` was dead ceremony. `Effect.effect()` removes it.
+
+```java
+// Before
+Effect<IOException, String> pipeline = Effect.generate(ctx -> {
+    String a = ctx.yield(fetchA());
+    String b = ctx.yield(fetchB());
+    return a + b;
+}, CapabilityHandler.builder().build()); // dead noise
+
+// After
+Effect<IOException, String> pipeline = Effect.effect(ctx -> {
+    String a = ctx.yield(fetchA());
+    String b = ctx.yield(fetchB());
+    return a + b;
+});
+```
+
+---
+
 ## ⚠️ Breaking Changes
 
 ### `Effect.Sleep` is a new sealed subtype (source-breaking)
