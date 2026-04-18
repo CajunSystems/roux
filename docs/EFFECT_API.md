@@ -121,21 +121,30 @@ Effect<Throwable, User> effect = Effect.from(new GetUser("123"));
 
 Create a scoped effect for **structured concurrency**. All forked effects within the scope are automatically managed and cancelled when the scope exits.
 
+> **Tip — reach for simpler tools first.** For the common case of running a fixed number of tasks in parallel and combining the results, `Effects.par` is shorter and requires no nesting. Use `Effect.scoped` when you need the scope handle itself (e.g., to call `scope.cancelAll()` conditionally mid-flight).
+>
+> ```java
+> // Common case — just use Effects.par
+> Effect<Throwable, Summary> summary = Effects.par(
+>     fetchUser(id), fetchOrders(id), fetchPrefs(id), Summary::new
+> );
+> ```
+
+When you do need a scope (conditional cancellation, hierarchical control):
+
 ```java
 Effect<Throwable, String> effect = Effect.scoped(scope -> {
-    // Fork tasks within the scope
-    Effect<Throwable, Fiber<Throwable, String>> fiber1 = task1.forkIn(scope);
-    Effect<Throwable, Fiber<Throwable, String>> fiber2 = task2.forkIn(scope);
-    
-    // Wait for results
-    return fiber1.flatMap(f1 ->
-        fiber2.flatMap(f2 ->
-            f1.join().flatMap(r1 ->
-                f2.join().map(r2 -> r1 + r2)
-            )
-        )
-    );
-    // Both tasks automatically cancelled if scope exits early
+    var fiber1 = task1.forkIn(scope);
+    var fiber2 = task2.forkIn(scope);
+
+    return fiber1.flatMap(f1 -> f1.join().flatMap(r1 -> {
+        if (shouldStop(r1)) {
+            // cancel remaining tasks — this is why we have the scope
+            return scope.cancelAll().flatMap(__ -> Effect.succeed(r1));
+        }
+        return fiber2.flatMap(f2 -> f2.join().map(r2 -> combine(r1, r2)));
+    }));
+    // Both tasks automatically cancelled if scope exits with an error
 });
 ```
 
@@ -152,7 +161,7 @@ Effect<Throwable, String> effect = Effect.scoped(scope -> {
 - ✅ No leaked threads or resources
 - ✅ Built on Java's `StructuredTaskScope` (JEP 453)
 
-**See:** [Structured Concurrency Guide](STRUCTURED_CONCURRENCY.md) for comprehensive documentation and patterns.
+**See:** [Structured Concurrency Guide](STRUCTURED_CONCURRENCY.md) for the full decision guide and patterns.
 
 ---
 
@@ -778,15 +787,44 @@ Effect<Throwable, Order> placeOrder = Effect.succeed(userId)
 
 ### Parallel Workflow
 
+`Effects.par` is the idiomatic way to run a fixed number of independent effects in parallel and combine the results. No nesting, no fiber management:
+
 ```java
 import static com.cajunsystems.roux.Effects.*;
 
+// 3 tasks in parallel — flat, readable
 Effect<Throwable, Dashboard> dashboard = par(
     fetchUser(userId),
     fetchOrders(userId),
     fetchAnalytics(userId),
     Dashboard::new
 );
+```
+
+For parallel work over a variable-length collection, use `parTraverse`:
+
+```java
+// Fetch all users in parallel
+Effect<Throwable, List<User>> users = parTraverse(userIds, id -> fetchUser(id));
+```
+
+For parallel work with imperative logic between fork and join, use `Effect.effect`:
+
+```java
+Effect<Throwable, Dashboard> dashboard = Effect.effect(ctx -> {
+    var userF      = ctx.yield(fetchUser(userId).fork());
+    var ordersF    = ctx.yield(fetchOrders(userId).fork());
+    var analyticsF = ctx.yield(fetchAnalytics(userId).fork());
+
+    // Log something between fork and join
+    logger.info("Waiting for dashboard data for {}", userId);
+
+    return new Dashboard(
+        ctx.yield(userF.join()),
+        ctx.yield(ordersF.join()),
+        ctx.yield(analyticsF.join())
+    );
+});
 ```
 
 ### Retry Pattern
@@ -805,34 +843,40 @@ Effect<Throwable, String> withBackoff = fetchData()
 
 ### Resource Management
 
-Use `Effect.scoped` to ensure cleanup runs when the scope exits. Fork the cleanup
-as the **last** thing in the scope body so it executes after the main work is done,
-or use a try-finally pattern inside a `suspend`:
+For a single resource, use `Resource.make` + `.use()`:
 
 ```java
-Effect<Throwable, String> readFile = Effect.suspend(() -> {
+Resource<Connection> connResource = Resource.make(
+    Effect.suspend(() -> pool.acquire()),
+    conn -> Effect.runnable(conn::close)
+);
+
+Effect<Throwable, Result> query = connResource.use(conn ->
+    Effect.blocking(() -> conn.execute("SELECT ..."))
+);
+// Connection always closed — success, failure, or cancellation
+```
+
+For multiple resources, use the `Resources` fluent builder to avoid nesting:
+
+```java
+// ✅ Flat multi-resource acquisition
+Effect<Throwable, Result> program = Resources
+    .with(connectionResource)
+    .and(statementResource)
+    .use((conn, stmt) -> Effect.blocking(() -> stmt.executeQuery()));
+```
+
+For raw I/O with a single resource, a `try-finally` inside `blocking` is also fine:
+
+```java
+Effect<Throwable, String> readFile = Effect.blocking(() -> {
     FileHandle file = openFile("data.txt");
     try {
         return readContent(file);
     } finally {
         file.close(); // guaranteed regardless of success or failure
     }
-});
-```
-
-For more complex resource lifetime management with concurrent fibers, use
-`Effect.scoped` to ensure all forked effects are cancelled when the scope exits:
-
-```java
-Effect<Throwable, String> program = Effect.scoped(scope -> {
-    return task1.forkIn(scope).flatMap(fiber1 ->
-        task2.forkIn(scope).flatMap(fiber2 ->
-            fiber1.join().flatMap(r1 ->
-                fiber2.join().map(r2 -> r1 + r2)
-            )
-        )
-    );
-    // Both fibers auto-cancelled if scope exits with an error
 });
 ```
 
@@ -909,10 +953,11 @@ Effect<ConfigException, Config> specific = generic.narrow();
    Effect.suspend(() -> readFile())  // Side effect
    ```
 
-2. **Prefer `flatMap` for sequential, `zipPar` for parallel**
+2. **Prefer `flatMap` for sequential; `Effects.par` / `parTraverse` for parallel**
    ```java
-   a.flatMap(x -> b.map(y -> combine(x, y)))  // Sequential
-   a.zipPar(b, (x, y) -> combine(x, y))       // Parallel
+   a.flatMap(x -> b.map(y -> combine(x, y)))         // Sequential
+   Effects.par(a, b, (x, y) -> combine(x, y))        // Parallel (fixed arity)
+   Effects.parTraverse(items, item -> process(item))  // Parallel (variable list)
    ```
 
 3. **Use capabilities for testability**
@@ -931,11 +976,15 @@ Effect<ConfigException, Config> specific = generic.narrow();
        .orElse(defaultEffect)
    ```
 
-5. **Use scoped for resource management**
+5. **Use `Resource` for resource management; `Effect.scoped` only when you need cancellation control**
    ```java
-   Effect.scoped(scope -> {
-       // Resources auto-cleaned when scope exits
-   })
+   // Single resource
+   connResource.use(conn -> query(conn))
+
+   // Multiple resources — flat, not nested
+   Resources.with(connResource).and(stmtResource).use((conn, stmt) -> query(conn, stmt))
+
+   // Effect.scoped only when you need scope.cancelAll() or scope.isCancelled()
    ```
 
 ---
