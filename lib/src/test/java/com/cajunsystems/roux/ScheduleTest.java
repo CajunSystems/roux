@@ -122,7 +122,7 @@ class ScheduleTest {
     }
 
     @Test
-    void collectEmptyWhenRecursZero() throws Throwable {
+    void collectSingleElementWhenRecursZero() throws Throwable {
         AtomicInteger count = new AtomicInteger(0);
 
         List<Integer> results = runtime.unsafeRun(

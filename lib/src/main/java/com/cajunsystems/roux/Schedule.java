@@ -136,7 +136,11 @@ public final class Schedule<A, B> {
         );
     }
 
-    /** Continue while {@code pred} returns {@code true} for the last output; stop as soon as it returns {@code false}. */
+    /**
+     * Continue while {@code pred} returns {@code true} for the last output; stop as soon as it returns {@code false}.
+     * When combined with {@link #collect()}, the output that caused the stop is still included in the collected list
+     * because accumulation happens before the stop decision is evaluated.
+     */
     public Schedule<A, B> whileOutput(Predicate<A> pred) {
         Step<A, B> outer = this.step;
         return new Schedule<>(
