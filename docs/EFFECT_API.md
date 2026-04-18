@@ -8,9 +8,10 @@ Complete reference for Roux's Effect system.
 2. [Transformation Operators](#transformation-operators)
 3. [Error Handling](#error-handling)
 4. [Concurrency](#concurrency)
-5. [Capabilities](#capabilities)
-6. [Runtime Execution](#runtime-execution)
-7. [Helper Types](#helper-types)
+5. [Scheduling](#scheduling)
+6. [Capabilities](#capabilities)
+7. [Runtime Execution](#runtime-execution)
+8. [Helper Types](#helper-types)
 
 ---
 
@@ -82,6 +83,24 @@ Effect<Throwable, String> effect = Effect.generate(ctx -> {
 - `ctx.lift(capability)` - Convert capability to effect without executing
 - `ctx.call(operation)` - Execute a direct operation
 - `ctx.yield(effect)` - Execute another effect
+
+---
+
+### `Effect.effect(generator)`
+
+Build an effect using generator-style imperative code when **no capability handler is needed** — only `ctx.yield()` and `ctx.call()` are used. Removes the dead `CapabilityHandler.builder().build()` argument required by `Effect.generate()`.
+
+```java
+Effect<IOException, String> pipeline = Effect.effect(ctx -> {
+    String a = ctx.yield(fetchA());   // sequence effects, propagate typed errors
+    String b = ctx.yield(fetchB());
+    return a + b;
+});
+```
+
+**Type:** `<E extends Throwable, A> Effect<E, A>`
+
+> Use `Effect.generate(generator, handler)` when capabilities (`ctx.perform()`) are also needed.
 
 ---
 
@@ -417,6 +436,106 @@ Effect<Throwable, Summary> summary = par(
 - `par(ea, eb, f)` - 2 effects
 - `par(ea, eb, ec, f)` - 3 effects
 - `par(ea, eb, ec, ed, f)` - 4 effects
+
+---
+
+### `Effects.parTraverse(items, f)` — Parallel Map over a Collection
+
+Apply a function to every element of a list to produce effects, run them all in parallel, and collect results in input order. Fails fast on the first error.
+
+```java
+import static com.cajunsystems.roux.Effects.*;
+
+// Fetch all users in parallel — fails fast if any fetch fails
+Effect<Throwable, List<User>> users =
+    parTraverse(userIds, id -> fetchUser(id).<Throwable>toEffect());
+```
+
+**Type:** `<E extends Throwable, A, B> Effect<Throwable, List<B>>`
+
+---
+
+### `Effects.parTraverseEither(items, f)` — Parallel Map Collecting All Results
+
+Like `parTraverse` but wraps each result in `Either`, so failures are collected alongside successes rather than short-circuiting the whole computation.
+
+```java
+// Process all items — collect both successes and failures
+Effect<Throwable, List<Either<Throwable, Result>>> outcomes =
+    parTraverseEither(items, item -> process(item).<Throwable>toEffect());
+
+List<Either<Throwable, Result>> results = runtime.unsafeRun(outcomes);
+long successCount = results.stream().filter(Either::isRight).count();
+long failureCount = results.stream().filter(Either::isLeft).count();
+```
+
+**Type:** `<E extends Throwable, A, B> Effect<Throwable, List<Either<E, B>>>`
+
+---
+
+## Scheduling
+
+### `Schedule<A, B>` — Repeat-on-Success Algebra
+
+`RetryPolicy` handles the **failure** path (retry on error). `Schedule` handles the **success** path — repeat an effect on a cadence, while a predicate holds, or for a fixed number of iterations, and optionally accumulate the outputs.
+
+#### Static Factories
+
+```java
+Schedule.<Status>fixed(Duration.ofSeconds(2))      // fixed delay between runs
+Schedule.<Integer>exponential(Duration.ofMillis(100)) // doubling delay: 100ms, 200ms, 400ms...
+Schedule.<String>immediate()                        // no delay
+```
+
+#### Termination Modifiers
+
+```java
+schedule.recurs(10)                  // stop after 10 repetitions (initial run + 10)
+schedule.whileOutput(s -> !s.done()) // stop when predicate returns false
+schedule.untilOutput(s -> s.done())  // stop when predicate returns true
+schedule.maxDelay(Duration.ofSeconds(30)) // cap computed delay
+schedule.jittered(0.2)               // ±20% random jitter on delay
+```
+
+#### Accumulation
+
+```java
+// Collect all outputs into a List<A>
+Schedule<Status, List<Status>> collecting = schedule.collect();
+```
+
+#### Execution
+
+```java
+Effect<Throwable, B> result = schedule.repeat(effect);
+```
+
+The repeat loop is **stack-safe** — it builds a `flatMap` chain executed by the trampolined runtime, so large `recurs` counts don't overflow the stack.
+
+#### Examples
+
+**Polling loop:**
+```java
+Schedule<Status, List<Status>> poll = Schedule
+    .<Status>fixed(Duration.ofSeconds(2))
+    .recurs(30)
+    .whileOutput(s -> !s.isDone())
+    .collect();
+
+Effect<Throwable, List<Status>> history = poll.repeat(checkJobStatus);
+```
+
+**Composing with `RetryPolicy` (retry failures, repeat on success):**
+```java
+Schedule<Integer, Integer> schedule = Schedule
+    .<Integer>exponential(Duration.ofMillis(50))
+    .maxDelay(Duration.ofSeconds(5))
+    .recurs(10);
+
+Effect<Throwable, Integer> resilient = schedule.repeat(
+    unstableEffect.retry(RetryPolicy.immediate().maxAttempts(3))
+);
+```
 
 ---
 

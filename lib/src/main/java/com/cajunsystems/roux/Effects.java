@@ -1,5 +1,7 @@
 package com.cajunsystems.roux;
 
+import com.cajunsystems.roux.data.Either;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -173,6 +175,36 @@ public final class Effects {
             );
         }
         return acc.map(results -> Collections.unmodifiableList(new ArrayList<>(results)));
+    }
+
+    /**
+     * Apply {@code f} to each element of {@code items} to produce effects, run all
+     * resulting effects in parallel, and collect results in order.
+     * Fails fast on the first error.
+     */
+    public static <E extends Throwable, A, B> Effect<Throwable, List<B>> parTraverse(
+            List<A> items,
+            Function<A, Effect<E, B>> f
+    ) {
+        if (items.isEmpty()) {
+            return Effect.succeed(List.of());
+        }
+        List<Effect<E, B>> effects = new ArrayList<>(items.size());
+        for (A item : items) {
+            effects.add(f.apply(item));
+        }
+        return parAll(effects);
+    }
+
+    /**
+     * Like {@link #parTraverse} but wraps each result in {@link Either}, collecting
+     * both successes and failures rather than short-circuiting on the first error.
+     */
+    public static <E extends Throwable, A, B> Effect<Throwable, List<Either<E, B>>> parTraverseEither(
+            List<A> items,
+            Function<A, Effect<E, B>> f
+    ) {
+        return parTraverse(items, item -> f.apply(item).attempt());
     }
 
     /**

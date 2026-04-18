@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0] - 2026-04-17
 
 ### Added
+- **`Effects.parTraverse(List, Function)`** — apply a function to each element of a list, run all resulting effects in parallel, and collect results in order; fail-fast on the first error
+- **`Effects.parTraverseEither(List, Function)`** — like `parTraverse` but wraps each result in `Either`, collecting both successes and failures rather than short-circuiting
+- **`Schedule<A, B>`** — composable repeat-on-success algebra; complements `RetryPolicy` (which handles failures) by handling the success path — repeat an effect on a cadence, while a predicate holds, for N iterations, and optionally accumulate results
+  - Static factories: `fixed(Duration)`, `exponential(Duration)`, `immediate()`
+  - Termination: `recurs(n)`, `whileOutput(Predicate)`, `untilOutput(Predicate)`, `maxDelay(Duration)`, `jittered(factor)`
+  - Accumulation: `collect()` — fold all outputs into a `List<A>`
+  - Execution: `repeat(Effect)` — stack-safe via trampolined runtime; composes with `RetryPolicy` naturally
+- **`Effect.effect(EffectGenerator)`** — no-handler entry point for generator-style blocks that only use `ctx.yield()` / `ctx.call()`; removes dead `CapabilityHandler.builder().build()` ceremony when no capabilities are needed
 - **`EffectWithEnv<R,E,A>`** — phantom-typed wrapper over `Effect<E,A>` that statically tracks which capabilities an effect requires; `of()`, `pure()`, `map()`, `flatMap()`, `run()`
 - **`HandlerEnv<R>`** — typed capability environment wrapper; `of()`, `and()`, `empty()`, `fromHandler()`, `toHandler()`
 - **`Layer<RIn,E,ROut>`** — ZIO-style layer for building and composing capability environments; `succeed()`, `fromEffect()`, `and()` (horizontal), `andProvide()` (vertical)
