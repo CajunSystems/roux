@@ -123,6 +123,14 @@ public final class Resource<A> {
     // -----------------------------------------------------------------------
 
     /**
+     * Transform the acquired value without changing resource lifecycle semantics.
+     * The release action from the original resource is preserved.
+     */
+    public <B> Resource<B> map(Function<A, B> f) {
+        return flatMap(a -> Resource.make(Effect.succeed(f.apply(a)), __ -> Effect.unit()));
+    }
+
+    /**
      * Compose two resources: acquire {@code this}, then acquire {@code other}
      * (which may depend on {@code this}). Both are released in reverse order
      * of acquisition.

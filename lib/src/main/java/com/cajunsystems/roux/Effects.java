@@ -5,6 +5,8 @@ import com.cajunsystems.roux.data.Either;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
@@ -226,6 +228,38 @@ public final class Effects {
             );
         }
         return acc.map(results -> Collections.unmodifiableList(new ArrayList<>(results)));
+    }
+
+    // -----------------------------------------------------------------------
+    // Executor interop
+    // -----------------------------------------------------------------------
+
+    /**
+     * Submit a {@link Callable} to an existing {@link ExecutorService} and lift
+     * the result into an effect. The submission happens when the effect is run.
+     *
+     * <p>Useful when a team has a tuned thread pool for CPU-bound work and wants
+     * to keep it while adopting roux elsewhere.
+     *
+     * <pre>{@code
+     * Effect<Throwable, Integer> heavy = Effects.fromExecutor(cpuPool, () -> expensiveCompute());
+     * }</pre>
+     */
+    public static <A> Effect<Throwable, A> fromExecutor(ExecutorService executor, Callable<A> task) {
+        return Effect.suspend(() -> {
+            java.util.concurrent.Future<A> future = executor.submit(task);
+            try {
+                return future.get();
+            } catch (java.util.concurrent.ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof Exception ex) throw ex;
+                throw new RuntimeException(cause);
+            } catch (InterruptedException e) {
+                future.cancel(true);
+                Thread.currentThread().interrupt();
+                throw new com.cajunsystems.roux.exception.CancelledException(e);
+            }
+        });
     }
 
     // -----------------------------------------------------------------------

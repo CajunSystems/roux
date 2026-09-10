@@ -5,8 +5,12 @@
 commons-math3 = "3.6.1"
 guava = "33.4.6-jre"
 junit-jupiter = "5.12.1"
+reactor = "3.7.5"
+rxjava = "3.1.10"
 
 [libraries]
 commons-math3 = { module = "org.apache.commons:commons-math3", version.ref = "commons-math3" }
 guava = { module = "com.google.guava:guava", version.ref = "guava" }
 junit-jupiter = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit-jupiter" }
+reactor-core = { module = "io.projectreactor:reactor-core", version.ref = "reactor" }
+rxjava = { module = "io.reactivex.rxjava3:rxjava", version.ref = "rxjava" }

@@ -168,33 +168,63 @@ Effect<Throwable, Integer> program = Effect.scoped(scope -> {
 
 ### Pattern 1: Parallel Task Execution
 
-Run multiple tasks in parallel and wait for all results.
+For the common case of running N independent tasks in parallel and combining their results, **reach for `Effects.par` first**. It is purpose-built for fan-out/fan-in and requires no nesting:
 
 ```java
+// ✅ Idiomatic — flat, readable, no nesting
 Effect<Throwable, Summary> fetchSummary(String userId) {
+    return Effects.par(
+        fetchUser(userId),
+        fetchOrders(userId),
+        fetchPreferences(userId),
+        Summary::new
+    );
+}
+```
+
+`Effects.par` starts all three tasks concurrently, combines the results when all succeed, and propagates the first failure (fail-fast). It handles 2, 3, and 4 effects.
+
+**If you need imperative style** — e.g. some logic between fork and join — use `Effect.effect()` with explicit fork/join. This is also flat:
+
+```java
+// ✅ Imperative style, still flat
+Effect<Throwable, Summary> fetchSummary(String userId) {
+    return Effect.effect(ctx -> {
+        // Fork all three immediately — work starts in parallel
+        var userF   = ctx.yield(fetchUser(userId).fork());
+        var ordersF = ctx.yield(fetchOrders(userId).fork());
+        var prefsF  = ctx.yield(fetchPreferences(userId).fork());
+
+        // Join — results are ready (work already ran in parallel)
+        var user   = ctx.yield(userF.join());
+        var orders = ctx.yield(ordersF.join());
+        var prefs  = ctx.yield(prefsF.join());
+
+        return new Summary(user, orders, prefs);
+    });
+}
+```
+
+**Only reach for `Effect.scoped` when you need the scope handle itself** — for example, to call `scope.cancelAll()` conditionally mid-flight, or to enforce that all forked fibers are cancelled when the scope exits due to an error in a custom control flow:
+
+```java
+// ✅ Use scoped when you need explicit cancellation control
+Effect<Throwable, Summary> fetchWithFallback(String userId) {
     return Effect.scoped(scope -> {
-        // Fork all tasks in parallel
-        Effect<Throwable, Fiber<Throwable, User>> userFiber = 
-            fetchUser(userId).forkIn(scope);
-        Effect<Throwable, Fiber<Throwable, List<Order>>> ordersFiber = 
-            fetchOrders(userId).forkIn(scope);
-        Effect<Throwable, Fiber<Throwable, Preferences>> prefsFiber = 
-            fetchPreferences(userId).forkIn(scope);
-        
-        // Wait for all results
-        return userFiber.flatMap(uf ->
-            ordersFiber.flatMap(of ->
-                prefsFiber.flatMap(pf ->
-                    uf.join().flatMap(user ->
-                        of.join().flatMap(orders ->
-                            pf.join().map(prefs ->
-                                new Summary(user, orders, prefs)
-                            )
-                        )
-                    )
-                )
-            )
-        );
+        var userF   = fetchUser(userId).forkIn(scope);
+        var ordersF = fetchOrders(userId).forkIn(scope);
+
+        return userF.flatMap(uf -> uf.join().flatMap(user -> {
+            if (!user.isActive()) {
+                // Cancel remaining work — only possible with a scope handle
+                return scope.cancelAll().flatMap(__ ->
+                    Effect.succeed(Summary.inactive(user))
+                );
+            }
+            return ordersF.flatMap(of -> of.join().map(orders ->
+                new Summary(user, orders)
+            ));
+        }));
     });
 }
 ```
@@ -266,33 +296,42 @@ Effect<Throwable, String> readFile(String path) {
 
 ### Pattern 5: Fan-out/Fan-in
 
-Fork multiple tasks and collect results.
+For variable-length parallel work over a collection, use `Effects.parTraverse`. It handles forking, joining, and result ordering in a single call — no manual fiber management required:
 
 ```java
+// ✅ Idiomatic — parTraverse handles all forking and joining
 Effect<Throwable, List<Result>> processItems(List<Item> items) {
-    return Effect.scoped(scope -> {
-        // Fork a task for each item
-        List<Effect<Throwable, Fiber<Throwable, Result>>> fibers = 
-            items.stream()
-                .map(item -> processItem(item).forkIn(scope))
-                .toList();
-        
-        // Collect all results
-        Effect<Throwable, List<Result>> results = Effect.succeed(new ArrayList<>());
-        for (Effect<Throwable, Fiber<Throwable, Result>> fiberEffect : fibers) {
-            results = results.flatMap(list ->
-                fiberEffect.flatMap(fiber ->
-                    fiber.join().map(result -> {
-                        list.add(result);
-                        return list;
-                    })
-                )
-            );
-        }
-        return results;
-    });
+    return Effects.parTraverse(items, item -> processItem(item));
 }
 ```
+
+If you want to collect both successes and failures rather than fail-fast on the first error, use `parTraverseEither`:
+
+```java
+// Collect all outcomes — don't short-circuit
+Effect<Throwable, List<Either<Throwable, Result>>> processAllItems(List<Item> items) {
+    return Effects.parTraverseEither(items, item -> processItem(item));
+}
+```
+
+Only use manual fork/join within a scope when each item's fiber needs individual inspection or conditional cancellation:
+
+```java
+// Use scoped + manual fibers only when you need per-fiber control
+Effect<Throwable, List<Result>> processWithControl(List<Item> items) {
+    return Effect.scoped(scope -> {
+        List<Effect<Throwable, Fiber<Throwable, Result>>> fibers =
+            items.stream()
+                 .map(item -> processItem(item).forkIn(scope))
+                 .toList();
+
+        return Effects.sequence(
+            fibers.stream()
+                  .map(fe -> fe.flatMap(Fiber::join))
+                  .toList()
+        );
+    });
+}
 
 ---
 
@@ -366,21 +405,44 @@ When a scope exits:
 
 ## Best Practices
 
-### 1. Always Use Scopes for Concurrent Operations
+### 1. Reach for the Highest-Level Combinator That Fits
+
+Roux has three levels of parallel composition, from simplest to most powerful. Use the first one that fits your problem:
+
+| Need | Use |
+|------|-----|
+| Fixed N tasks in parallel → combine | `Effects.par(e1, e2, e3, Combiner::new)` |
+| Variable-length parallel map → list | `Effects.parTraverse(items, f)` |
+| Parallel with logic between fork/join | `Effect.effect(ctx -> { ... fork ... join ... })` |
+| Conditional mid-flight cancellation | `Effect.scoped(scope -> { ... scope.cancelAll() ... })` |
+
+Manually nesting `forkIn` + `flatMap` + `join` is rarely the right answer — one of the above almost always covers it.
+
+### 2. Avoid the Nesting Pyramid
+
+A deeply nested flatMap/fork/join chain is a signal you should step up to a higher-level combinator:
 
 ```java
-// ✅ Good - Scoped concurrency
-Effect.scoped(scope -> {
-    task1.forkIn(scope);
-    task2.forkIn(scope);
-    return result;
-});
+// ❌ Unnecessarily verbose
+Effect.scoped(scope ->
+    fetchUser(id).forkIn(scope).flatMap(uf ->
+        fetchOrders(id).forkIn(scope).flatMap(of ->
+            uf.join().flatMap(user ->
+                of.join().map(orders -> new Summary(user, orders))
+            )
+        )
+    )
+);
 
-// ❌ Bad - Unscoped fork (no automatic cleanup)
-task1.fork().flatMap(fiber -> /* might leak */);
+// ✅ Use Effects.par instead
+Effects.par(fetchUser(id), fetchOrders(id), Summary::new);
 ```
 
-### 2. Keep Scope Lifetime Short
+### 3. When to Use Scopes Directly
+
+Reserve `Effect.scoped` for when you genuinely need the `scope` handle — conditional cancellation mid-flight, hierarchical scope nesting, or forking an unbounded number of tasks you need to individually supervise. For everything else, `Effects.par`, `Effects.parTraverse`, or `Effect.effect()` are the right tools.
+
+### 4. Keep Scope Lifetime Short
 
 ```java
 // ✅ Good - Scope only for concurrent section
@@ -401,7 +463,7 @@ Effect.scoped(scope -> {
 });
 ```
 
-### 3. Handle Cancellation Gracefully
+### 5. Handle Cancellation Gracefully
 
 ```java
 Effect<Throwable, String> cancellableTask = Effect.suspend(() -> {
@@ -422,7 +484,7 @@ Effect<Throwable, String> cancellableTask = Effect.suspend(() -> {
 });
 ```
 
-### 4. Use Nested Scopes for Hierarchical Cancellation
+### 6. Use Nested Scopes for Hierarchical Cancellation
 
 ```java
 Effect.scoped(outerScope -> {
